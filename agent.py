@@ -19,6 +19,10 @@ Setup:
   pip install httpx python-dotenv
   cp .env.example .env   # fill in your credentials
   python agent.py
+
+Options trading requires Level 2 approval on your Alpaca account:
+  alpaca.markets → Account → Options Trading → Enable
+  Paper account approval is instant.
 """
 
 import os
