@@ -42,6 +42,31 @@ PROVIDERS: dict[str, tuple[str, str | None]] = {
     "none":     ("",         None),   # rule-based, no LLM
 }
 
+# Opt-in installer commands per provider (verified 2026-06). Sign-in stays manual.
+# All three CLIs install into ~/.local/bin, which the kit's resolver already finds.
+LLM_INSTALL: dict[str, dict] = {
+    "claude": {
+        "posix": "curl -fsSL https://claude.ai/install.sh | bash",
+        "nt": 'powershell -ExecutionPolicy ByPass -c "irm https://claude.ai/install.ps1 | iex"',
+        "signin": "claude",
+    },
+    "gemini": {
+        "posix": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+        "nt": "curl -fsSL https://antigravity.google/cli/install.cmd -o install.cmd && install.cmd && del install.cmd",
+        "signin": "agy",
+    },
+    "openai": {
+        "posix": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+        "nt": 'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"',
+        "signin": "codex",
+    },
+    "deepseek": {
+        "posix": f'"{sys.executable}" -m pip install --user openai',
+        "nt": f'"{sys.executable}" -m pip install --user openai',
+        "signin": None,   # API key in .env, no sign-in
+    },
+}
+
 # Not copied into the user's editable folder (CLI/dev/packaging only).
 _SCAFFOLD_EXCLUDE = {"agentberg_cli", "pyproject.toml", ".github", "tests", "__pycache__"}
 
@@ -203,6 +228,43 @@ def _prompt(label: str, preset: str, no_input: bool) -> str:
     return input(label).strip()
 
 
+def _install_llm(llm: str) -> None:
+    spec = LLM_INSTALL.get(llm)
+    if not spec:
+        return
+    cmd = spec["nt" if os.name == "nt" else "posix"]
+    print(f"\nInstalling the {llm} CLI…\n  $ {cmd}")
+    try:
+        subprocess.run(cmd, shell=True)
+    except Exception as e:
+        print(f"  install failed ({e}) — install manually (see README).")
+        return
+    signin = spec.get("signin")
+    if signin:
+        print(f"\n  ✓ Installed. SIGN IN once: open a NEW terminal, run `{signin}`, and follow")
+        print(f"    the browser prompt. After that your agent ranks with {llm}.")
+    elif llm == "deepseek":
+        print("\n  ✓ openai SDK installed. Add your key to .env:  DEEPSEEK_API_KEY=sk-…")
+        print("    (free key at https://platform.deepseek.com)")
+
+
+def _maybe_install_llm(llm: str, args) -> None:
+    if llm == "none":
+        return
+    cli_cmd = PROVIDERS[llm][1]
+    if cli_cmd is not None and _find_cli(cli_cmd) is not None:
+        return  # already installed
+    want = args.install_llm
+    if not want and not args.no_input:
+        ans = input(f"\nInstall the {llm} CLI now? (you sign in manually after) [y/N]: ").strip().lower()
+        want = ans in ("y", "yes")
+    if want:
+        _install_llm(llm)
+    else:
+        tip = "install it and sign in" if cli_cmd else "`pip install openai` and set DEEPSEEK_API_KEY"
+        print(f"\n  ⚠ {llm} not set up yet — {tip} to enable AI ranking (free rule-based until then).")
+
+
 def cmd_init(args) -> None:
     target = Path(os.path.expanduser(args.dir)) if args.dir else DEFAULT_DIR
     print(f"Setting up your Agentberg trader in: {target}")
@@ -223,10 +285,7 @@ def cmd_init(args) -> None:
     print(f"  LLM:     {llm}  (LLM_PROVIDER={PROVIDERS[llm][0] or 'none'})")
     if launcher:
         print(f"  Chat:    double-click '{launcher.name}' in that folder to chat with your agent")
-    cli_cmd = PROVIDERS[llm][1]
-    if cli_cmd and llm != "none" and _find_cli(cli_cmd) is None:
-        print(f"\n  ⚠ The {llm} CLI ('{cli_cmd}') isn't installed yet — install it and sign in to enable AI ranking.")
-        print("    Until then the agent runs free rule-based ranking.")
+    _maybe_install_llm(llm, args)
     print("\nNext steps:")
     print(f"  cd {target} && pip install -r requirements.txt")
     print("  agentberg run        # one session   |   agentberg start   # live scheduler")
@@ -279,6 +338,7 @@ def main(argv=None) -> None:
     pi.add_argument("--agent-id")
     pi.add_argument("--alpaca-key")
     pi.add_argument("--alpaca-secret")
+    pi.add_argument("--install-llm", action="store_true", help="install the chosen LLM CLI automatically")
     pi.add_argument("--force", action="store_true", help="overwrite a non-empty folder")
     pi.add_argument("--no-input", action="store_true", help="don't prompt (for scripts/tests)")
     pi.set_defaults(func=cmd_init)

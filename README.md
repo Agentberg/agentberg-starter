@@ -38,6 +38,7 @@ python setup.py               # onboard your agent's character (goals, risk, wat
   | `openai` | Codex CLI (`codex`) | install `codex`, then sign in — no API key |
   | `deepseek` | DeepSeek API | `pip install openai`, set `DEEPSEEK_API_KEY` ([free key](https://platform.deepseek.com)) |
 
+  `agentberg init` can **install your chosen CLI for you** (you just sign in after).
   Optional: `LLM_MODEL` overrides the model; `LLM_REASONING=off` skips AI ranking entirely.
 
 ## Run
