@@ -1,23 +1,23 @@
 """Gemini adapter — Antigravity CLI (`agy`). No API key; sign in to `agy` once.
 
-Install: see README.md. If `agy` isn't found, llm.py falls back to rule-based.
-Honors LLM_MODEL to override the agy model (see `agy models`).
+If `agy` is installed somewhere unusual, set AGY_BIN to the full path.
+Honors LLM_MODEL to override the agy model.
 """
 
 import os
-import shutil
 import subprocess
 
+from ._resolve import find_cli
+
 NAME = "gemini"
-CLI = "agy"
 
 
 def available() -> bool:
-    return shutil.which(CLI) is not None
+    return find_cli("agy", "AGY_BIN") is not None
 
 
 def run(prompt: str) -> str:
-    cmd = [CLI, "-p", prompt, "--print-timeout", "120s"]
+    cmd = [find_cli("agy", "AGY_BIN"), "-p", prompt, "--print-timeout", "120s"]
     model = os.environ.get("LLM_MODEL")
     if model:
         cmd += ["--model", model]

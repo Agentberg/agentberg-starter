@@ -1,30 +1,28 @@
 """OpenAI adapter — Codex CLI (`codex`). No API key; sign in to `codex` once.
 
-Install: see README.md. If `codex` isn't found, llm.py falls back to rule-based.
-Honors LLM_MODEL to override the codex model.
-
-codex streams progress to stderr; --output-last-message captures only the final
-answer to a file, which is the cleanest thing to parse.
+If `codex` is installed somewhere unusual, set CODEX_BIN to the full path.
+Honors LLM_MODEL. codex streams progress to stderr; --output-last-message captures
+only the final answer to a file, which is the cleanest thing to parse.
 """
 
 import os
-import shutil
 import subprocess
 import tempfile
 
+from ._resolve import find_cli
+
 NAME = "openai"
-CLI = "codex"
 
 
 def available() -> bool:
-    return shutil.which(CLI) is not None
+    return find_cli("codex", "CODEX_BIN") is not None
 
 
 def run(prompt: str) -> str:
     with tempfile.NamedTemporaryFile("r", suffix=".txt", delete=False) as f:
         out_path = f.name
     cmd = [
-        CLI, "exec",
+        find_cli("codex", "CODEX_BIN"), "exec",
         "--skip-git-repo-check",
         "--sandbox", "read-only",
         "--ask-for-approval", "never",

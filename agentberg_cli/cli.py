@@ -125,6 +125,31 @@ def _write_env(target: Path, llm: str, agent_id: str, key: str, secret: str) -> 
     (target / ".env").write_text(text)
 
 
+def _find_cli(name: str) -> str | None:
+    """Locate a CLI even under a minimal PATH (mirrors the kit's llm_providers resolver)."""
+    p = shutil.which(name)
+    if p:
+        return p
+    home = Path.home()
+    for d in (home / ".local/bin", Path("/opt/homebrew/bin"), Path("/usr/local/bin"),
+              home / ".npm-global/bin", home / ".bun/bin", home / "bin"):
+        fp = d / name
+        if fp.is_file() and os.access(fp, os.X_OK):
+            return str(fp)
+    if os.name != "nt":
+        try:
+            shell = os.environ.get("SHELL", "/bin/bash")
+            out = subprocess.run([shell, "-ilc", f"command -v {name} 2>/dev/null"],
+                                 capture_output=True, text=True, timeout=8)
+            for line in reversed(out.stdout.strip().splitlines()):
+                line = line.strip()
+                if line.startswith("/") and os.access(line, os.X_OK):
+                    return line
+        except Exception:
+            pass
+    return None
+
+
 # ── chat launcher (generated locally → no Gatekeeper/SmartScreen, no signing) ────
 
 def _generate_chat_launcher(target: Path, llm: str) -> Path | None:
@@ -135,16 +160,19 @@ def _generate_chat_launcher(target: Path, llm: str) -> Path | None:
         path = target / "Agentberg Chat.bat"
         path.write_text(
             "@echo off\r\n"
+            'set "PATH=%USERPROFILE%\\.local\\bin;%PATH%"\r\n'   # Claude native installer dir
             f'cd /d "{target}"\r\n'
             f"{cmd}\r\n"
             "pause\r\n"
         )
     else:
+        # Launch through the user's login+interactive shell so it inherits the SAME
+        # PATH as their terminal — the CLI (e.g. claude in ~/.local/bin) is found even
+        # though a double-clicked .command otherwise gets a minimal PATH.
         path = target / "Agentberg Chat.command"
         path.write_text(
             "#!/bin/bash\n"
-            f'cd "{target}" || exit 1\n'
-            f"exec {cmd}\n"
+            f"exec \"${{SHELL:-/bin/bash}}\" -ilc 'cd \"{target}\" && exec {cmd}'\n"
         )
         path.chmod(0o755)
     return path
@@ -196,7 +224,7 @@ def cmd_init(args) -> None:
     if launcher:
         print(f"  Chat:    double-click '{launcher.name}' in that folder to chat with your agent")
     cli_cmd = PROVIDERS[llm][1]
-    if cli_cmd and llm != "none" and shutil.which(cli_cmd) is None:
+    if cli_cmd and llm != "none" and _find_cli(cli_cmd) is None:
         print(f"\n  ⚠ The {llm} CLI ('{cli_cmd}') isn't installed yet — install it and sign in to enable AI ranking.")
         print("    Until then the agent runs free rule-based ranking.")
     print("\nNext steps:")
@@ -218,9 +246,18 @@ def cmd_chat(args) -> None:
     cmd = PROVIDERS.get(llm, ("", None))[1]
     if not cmd:
         sys.exit(f"Your configured LLM ('{llm}') has no chat CLI — re-run `agentberg init` and pick Claude/Gemini/OpenAI.")
-    if shutil.which(cmd) is None:
-        sys.exit(f"'{cmd}' not found on PATH — install the {llm} CLI and sign in first.")
-    subprocess.run([cmd], cwd=folder)
+    if _find_cli(cmd) is None:
+        print(f"  heads up: couldn't locate '{cmd}' — if chat fails, install the {llm} CLI, "
+              f"sign in, and open a new terminal (or set its *_BIN env var).")
+    # Launch through the user's login+interactive shell so the CLI is found under the
+    # same PATH as their terminal — not the minimal PATH this process may have.
+    if os.name == "nt":
+        env = os.environ.copy()
+        env["PATH"] = os.path.expanduser(r"~\.local\bin") + os.pathsep + env.get("PATH", "")
+        subprocess.run(cmd, cwd=folder, shell=True, env=env)
+    else:
+        shell = os.environ.get("SHELL", "/bin/bash")
+        subprocess.run([shell, "-ilc", f'cd "{folder}" && exec {cmd}'], cwd=folder)
 
 
 def cmd_update(args) -> None:
