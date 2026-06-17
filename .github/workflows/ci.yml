@@ -22,3 +22,6 @@ jobs:
           agentberg --help
       - name: Byte-compile the kit
         run: python -m compileall -q agent.py memory.py alpaca.py risk.py structures.py llm.py config.py agentberg.py scheduler.py knowledge.py character.py identity.py journal.py setup.py llm_providers agentberg_cli
+
+      - name: CHANGELOG.md in sync with kit_manifest.json
+        run: python scripts/release_notes.py --check
