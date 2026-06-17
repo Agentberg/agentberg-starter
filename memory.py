@@ -93,7 +93,10 @@ def init_db():
                          ("stop_pct", "REAL"), ("variance_pct", "REAL"),
                          ("variance_reason", "TEXT"),
                          ("long_symbol", "TEXT"), ("short_symbol", "TEXT"),
-                         ("multiplier", "INTEGER DEFAULT 1"), ("order_id", "TEXT")]:
+                         ("multiplier", "INTEGER DEFAULT 1"), ("order_id", "TEXT"),
+                         # network publish marker — set once a closed trade is sent to
+                         # Agentberg, so every trade publishes exactly once (see agent.py).
+                         ("published_at", "TEXT")]:
             try:
                 conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
             except sqlite3.OperationalError:
@@ -340,6 +343,27 @@ def count_closed_today() -> int:
             (today,),
         ).fetchone()
     return row["n"] or 0
+
+
+def get_unpublished_closed_trades() -> list[dict]:
+    """Every closed trade not yet sent to Agentberg, oldest first. The design is
+    publish-all: each closed trade goes to the network exactly once, with its real
+    P&L from the ledger (never a placeholder). Backfills anything missed while down."""
+    with _conn() as conn:
+        rows = conn.execute(
+            """SELECT id, symbol, sector, trade_type, entry_price, exit_price, qty,
+                      pnl, pnl_pct, exit_reason, opened_at, closed_at
+               FROM trades
+               WHERE status='closed' AND published_at IS NULL
+               ORDER BY id ASC""",
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_trade_published(trade_id: int) -> None:
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    with _conn() as conn:
+        conn.execute("UPDATE trades SET published_at=? WHERE id=?", (now, trade_id))
 
 
 def get_open_trades() -> list[dict]:

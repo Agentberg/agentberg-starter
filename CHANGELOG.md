@@ -5,6 +5,14 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.1.0 — 2026-06-17
+
+*Files:* agent.py, memory.py, kit_manifest.json
+
+- Publish-all trades — every closed trade is now sent to Agentberg exactly once, with its REAL P&L from the local ledger. Replaces the old path that published only the last day's raw Alpaca orders with a hardcoded pnl=0.0. New memory.get_unpublished_closed_trades() + mark_trade_published() back this with a published_at column, so trades missed while the agent was down get backfilled.
+- memory.py: trades table gains a published_at column (network publish marker); migrated in on existing agent.db files.
+- agent.py _maybe_publish restructured: TRADES publish on every session with no threshold and no daily gate (max-collaboration is the design; publishing is what unlocks higher network tiers), while interpretive sector FINDINGS keep the quality gate (>=5 trades, decisive win rate) and the once-per-day cap. Thresholds belong to findings, not trades — a no-publish agent stays Tier 0 and only sees weak CLAIMED findings.
+
 ## v2.0.0 — 2026-06-17
 
 *Files:* agent.py, alpaca.py, scheduler.py, config.py, knowledge.py, kit_manifest.json

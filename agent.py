@@ -554,70 +554,67 @@ def _vote_sector_outcome(trade: dict, pnl_dollars: float):
 
 
 def _maybe_publish(blocked_sectors: list[str], regime: str | None):
-    """Publish sector findings once per day based on local memory performance."""
-    if memory.was_published_today("sector_findings"):
-        print("[5] Findings already published today — skipping")
-        return
+    """Contribute to the network. Two independent paths:
 
-    print("[5] Publishing findings to Agentberg...")
-    sector_perf = memory.get_sector_performance()
+      1. TRADES — publish-all. Every closed trade goes up exactly once, with its real
+         P&L from the ledger. No threshold, no daily gate: max collaboration is the
+         design, and publishing is what unlocks higher network tiers (a non-publisher
+         stays Tier 0 and sees only weak CLAIMED findings).
+      2. FINDINGS — interpretive sector claims, quality-gated (≥5 trades, decisive WR)
+         and published at most once per day. Thresholds belong to findings, not trades.
+    """
+    print("[5] Contributing to Agentberg...")
     published = 0
 
-    for s in sector_perf:
-        sector = s["sector"]
-        if not sector or s["trade_count"] < 5:
-            continue
+    # ── 1. Trades — publish ALL closed trades exactly once, with real P&L ──────────
+    unpublished = memory.get_unpublished_closed_trades()
+    for t in unpublished:
+        result = _agentberg.add_trade(
+            finding_id=None,
+            ticker=t["symbol"],
+            trade_type=t.get("trade_type") or "long_stock",
+            entry_date=(t.get("opened_at") or "")[:10],
+            exit_date=(t.get("closed_at") or "")[:10],
+            pnl=t.get("pnl") or 0.0,
+            pnl_pct=t.get("pnl_pct") or 0.0,
+            exit_reason=t.get("exit_reason") or "closed",
+            spy_regime=regime,
+            execution_env="paper" if cfg.ALPACA_PAPER else "live",
+        )
+        if result:
+            memory.mark_trade_published(t["id"])
+            published += 1
+    if unpublished:
+        print(f"    Trades published: {published}/{len(unpublished)}")
 
-        if s["win_rate"] >= 0.70:
-            result = _agentberg.publish_finding(
-                category="trade_result",
-                claim=f"{sector} sector performing well — {s['win_rate']:.0%} WR over {s['trade_count']} trades, net P&L ${s['net_pnl']:+,.2f}",
-                trade_count=s["trade_count"],
-                win_rate=s["win_rate"],
-                conditions={"spy_regime": regime, "sector": sector},
-            )
-            if result:
-                published += 1
-
-        elif s["win_rate"] <= 0.30:
-            result = _agentberg.publish_finding(
-                category="sector_failure",
-                claim=f"{sector} sector failing — {s['win_rate']:.0%} WR over {s['trade_count']} trades, net P&L ${s['net_pnl']:+,.2f}",
-                trade_count=s["trade_count"],
-                win_rate=s["win_rate"],
-                conditions={"spy_regime": regime, "sector": sector},
-            )
-            if result:
-                published += 1
-
-    # Publish recent closed trades from Alpaca — once per day (yesterday's only,
-    # separate gate to prevent re-publishing the same orders every day).
-    if not memory.was_published_today("recent_trades"):
-        closed_orders = _alpaca.get_recent_closed_orders(limit=50, days=1)
-        trade_published = 0
-        for order in closed_orders:
-            ticker    = order.get("symbol", "")
-            filled_at = (order.get("filled_at") or "")[:10]
-            if not ticker or not filled_at:
+    # ── 2. Findings — interpretive, quality-gated, once per day ────────────────────
+    if not memory.was_published_today("sector_findings"):
+        sector_perf = memory.get_sector_performance()
+        findings = 0
+        for s in sector_perf:
+            sector = s["sector"]
+            if not sector or s["trade_count"] < 5:
                 continue
-            _agentberg.add_trade(
-                finding_id=None,
-                ticker=ticker,
-                trade_type="long_stock",
-                entry_date=(order.get("submitted_at") or filled_at)[:10],
-                exit_date=filled_at,
-                pnl=0.0,
-                pnl_pct=0.0,
-                exit_reason="manual",
-                spy_regime=regime,
-                execution_env="paper" if cfg.ALPACA_PAPER else "live",
+            if s["win_rate"] >= 0.70:
+                category, verb = "trade_result", "performing well"
+            elif s["win_rate"] <= 0.30:
+                category, verb = "sector_failure", "failing"
+            else:
+                continue
+            result = _agentberg.publish_finding(
+                category=category,
+                claim=f"{sector} sector {verb} — {s['win_rate']:.0%} WR over {s['trade_count']} trades, net P&L ${s['net_pnl']:+,.2f}",
+                trade_count=s["trade_count"],
+                win_rate=s["win_rate"],
+                conditions={"spy_regime": regime, "sector": sector},
             )
-            trade_published += 1
-        memory.mark_published("recent_trades")
-        published += trade_published
+            if result:
+                findings += 1
+        memory.mark_published("sector_findings")
+        published += findings
+        print(f"    Findings published: {findings}")
 
-    memory.mark_published("sector_findings")
-    print(f"    Published {published} finding(s) / trade(s)")
+    print(f"    Total contributed this session: {published}")
 
 
 if __name__ == "__main__":
