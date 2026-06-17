@@ -27,7 +27,12 @@ AGENTBERG_URL  = os.environ.get("AGENTBERG_URL", "https://agentberg.ai")
 ALPACA_API_KEY    = os.environ["ALPACA_API_KEY"]
 ALPACA_SECRET_KEY = os.environ["ALPACA_SECRET_KEY"]
 ALPACA_BASE_URL   = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
-ALPACA_PAPER      = True   # hardcoded — never change until you are ready and have tested
+ALPACA_PAPER      = os.environ.get("ALPACA_PAPER", "true").lower() != "false"
+if not ALPACA_PAPER and "paper" in ALPACA_BASE_URL.lower():
+    raise EnvironmentError(
+        "ALPACA_PAPER=false but ALPACA_BASE_URL still points to paper-api — "
+        "set ALPACA_BASE_URL to the live endpoint or revert ALPACA_PAPER."
+    )
 
 # ── Strategy mode ──────────────────────────────────────────────────────────────
 # "equity"         — buy/sell stocks

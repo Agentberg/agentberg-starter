@@ -168,23 +168,13 @@ If neither, it cannot be built.
 
 ## Allowlist
 
-| Structure | Legs & roles | Max loss | Why you'd use it |
-|---|---|---|---|
-| **Bull call / bear put** (debit) | Buy 1 (engine) + Sell 1 OTM (financier) | net debit | Cheap directional, capped cost & profit |
-| **Bull put / bear call** (credit) | Sell 1 (income) + Buy 1 OTM (seatbelt) | width − credit | Income; wins if price doesn't move against you |
-| **Long straddle / strangle** | Buy call + Buy put | total premium | Bet on a big move either way (earnings, vol) |
-| **Strap / strip** | Strap = 2 long calls + 1 long put; Strip = 1 long call + 2 long puts | total premium | Directional vol bet with an up (strap) / down (strip) lean |
-| **Iron condor** | put credit spread + call credit spread | wing width − credit | Range-bound income, defined both sides |
-| **Long condor** (all-call/all-put) | Buy 1 / Sell 1 / Sell 1 / Buy 1 | net debit | Wider-body range bet, more margin for error than a fly |
-| **Long butterfly** (call/put) | Buy 1 / Sell 2 / Buy 1, equal spacing | net debit | Cheap "pin the strike"; big payoff at the body |
-| **Iron butterfly** | Short straddle ATM + long wings | wing width − credit | Higher credit than condor; price sits still |
-| **Broken-wing butterfly** | Asymmetric fly, often a credit | wide-side risk (explicit formula) | Removes one side's risk; can be no-loss on the wide side |
-| **Calendar / diagonal** | Sell near-dated + Buy far-dated | net debit | Theta + vega; neutral-now, directional-later |
-| **Double calendar / double diagonal** | Two calendars at different strikes | net debit | Neutral theta/vega over a wider range |
-| **Poor man's covered call (PMCC)** | Long deep-ITM LEAPS call (engine) + short near-term call (income) | LEAPS debit − credits | Capital-efficient covered call; never treat the LEAPS leg as a standalone long |
-| **Collar / zero-cost collar** | Long shares + long put (floor) + short call (ceiling) | shares − put strike + net premium | Hedge a stock position; finance the put with the call |
-| **Covered call** | Long 100 shares (cover) + Short 1 call | stock downside − premium | Income on stock you hold |
-| **Protective put** | Long shares + Long put (insurance) | shares − strike + premium | Downside insurance with a known floor |
+The registry in `structures.py:STRUCTURE_REGISTRY` is authoritative — structures not in it are rejected at build time. Do not attempt structures listed below unless they appear in the registry.
+
+| Structure | Registry key | Legs & roles | Max loss | Why you'd use it |
+|---|---|---|---|---|
+| **Debit vertical** (bull call or bear put) | `debit_vertical` | Buy 1 (engine) + Sell 1 OTM (financier), same underlying & expiry | net debit × 100 | Cheap directional, capped cost & profit |
+
+*To add a structure: add a registry entry in `structures.py` whose every short leg is covered by a long, then list it here. Never list a structure here that is not in the registry — it will be rejected at build time with "not an allowed structure (default-deny)".*
 
 ## The three gates (fail-closed — any one fails → reject)
 

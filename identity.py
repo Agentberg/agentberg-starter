@@ -33,12 +33,19 @@ def _load_or_create() -> Ed25519PrivateKey:
     return key
 
 
-_key = _load_or_create()
+_key = None
+
+
+def _get_key() -> Ed25519PrivateKey:
+    global _key
+    if _key is None:
+        _key = _load_or_create()
+    return _key
 
 
 def public_key_b64() -> str:
     """The raw Ed25519 public key, base64 — the agent's identity anchor."""
-    raw = _key.public_key().public_bytes(
+    raw = _get_key().public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,
     )
@@ -46,7 +53,7 @@ def public_key_b64() -> str:
 
 
 def _sign(message: str) -> str:
-    return base64.b64encode(_key.sign(message.encode("utf-8"))).decode()
+    return base64.b64encode(_get_key().sign(message.encode("utf-8"))).decode()
 
 
 def register_payload(agent_id: str) -> dict:

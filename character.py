@@ -44,7 +44,10 @@ def coerce(q: dict, raw: str):
     if t == "int":
         return int(float(raw))
     if t == "pct":
-        return float(str(raw).replace("%", "").strip())
+        val = float(str(raw).replace("%", "").strip())
+        if 0 < val < 1:
+            print(f"  [character] hint: {val} looks like a decimal — enter as a percentage (e.g. 2 for 2%, not 0.02)")
+        return val
     if t == "yesno":
         return str(raw).strip().lower() in ("y", "yes", "true", "1")
     if t == "choice":

@@ -580,26 +580,32 @@ def _maybe_publish(blocked_sectors: list[str], regime: str | None):
             if result:
                 published += 1
 
-    # Also publish closed trades from Alpaca
-    closed_orders = _alpaca.get_recent_closed_orders(limit=50)
-    for order in closed_orders:
-        ticker    = order.get("symbol", "")
-        filled_at = (order.get("filled_at") or "")[:10]
-        if not ticker or not filled_at:
-            continue
-        _agentberg.add_trade(
-            finding_id=None,
-            ticker=ticker,
-            trade_type="long_stock",
-            entry_date=(order.get("submitted_at") or filled_at)[:10],
-            exit_date=filled_at,
-            pnl=0.0,
-            pnl_pct=0.0,
-            exit_reason="manual",
-            spy_regime=regime,
-            execution_env="paper" if cfg.ALPACA_PAPER else "live",
-        )
-        published += 1
+    # Publish recent closed trades from Alpaca — once per day (yesterday's only,
+    # separate gate to prevent re-publishing the same orders every day).
+    if not memory.was_published_today("recent_trades"):
+        closed_orders = _alpaca.get_recent_closed_orders(limit=50, days=1)
+        trade_published = 0
+        for order in closed_orders:
+            ticker    = order.get("symbol", "")
+            filled_at = (order.get("filled_at") or "")[:10]
+            if not ticker or not filled_at:
+                continue
+            _agentberg.add_trade(
+                finding_id=None,
+                ticker=ticker,
+                trade_type="long_stock",
+                entry_date=(order.get("submitted_at") or filled_at)[:10],
+                exit_date=filled_at,
+                pnl=0.0,
+                pnl_pct=0.0,
+                exit_reason="manual",
+                spy_regime=regime,
+                execution_env="paper" if cfg.ALPACA_PAPER else "live",
+            )
+            trade_published += 1
+        if trade_published:
+            memory.mark_published("recent_trades")
+        published += trade_published
 
     if published > 0:
         memory.mark_published("sector_findings")

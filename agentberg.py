@@ -5,8 +5,9 @@ import httpx
 
 try:
     import identity  # cryptographic agent identity — signs register/publish/vote
-except Exception:
+except Exception as _identity_err:
     identity = None  # legacy/unsigned mode if cryptography or the key isn't available
+    print(f"[identity] running unsigned ({_identity_err}) — install cryptography: pip install cryptography")
 
 
 class AgentbergClient:
@@ -70,6 +71,7 @@ class AgentbergClient:
 
         min_votes guards against single-agent anomalies becoming rules.
         Default of 3 means at least 3 agents must have weighed in.
+        Falls back to min_votes=1 if no results at 3 (early network with few agents).
         """
         try:
             findings = self._get("/findings", {
@@ -78,6 +80,15 @@ class AgentbergClient:
                 "min_votes": min_votes,
                 "agent_id": self.agent_id,
             })
+            if not findings and min_votes > 1:
+                findings = self._get("/findings", {
+                    "category": "sector_failure",
+                    "sort_by": "weight",
+                    "min_votes": 1,
+                    "agent_id": self.agent_id,
+                })
+                if findings:
+                    print(f"    [network] sector advisories from low-vote findings (network is early — treat as weak signal)")
             blocked: dict[str, str] = {}
             for f in findings:
                 if f.get("weight", 0) < min_weight:

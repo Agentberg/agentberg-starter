@@ -42,6 +42,19 @@ log = logging.getLogger(__name__)
 
 ET = zoneinfo.ZoneInfo("America/New_York")
 
+# NYSE market holidays — update annually. Scheduler skips these dates entirely.
+_MARKET_HOLIDAYS: set[str] = {
+    # 2025
+    "2025-01-01", "2025-01-20", "2025-02-17", "2025-04-18", "2025-05-26",
+    "2025-06-19", "2025-07-04", "2025-09-01", "2025-11-27", "2025-12-25",
+    # 2026
+    "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",
+    "2026-06-19", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+    # 2027
+    "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31",
+    "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
+}
+
 SESSION_TIMES = [
     datetime.time(9, 35),    # morning session — after opening volatility
     datetime.time(15, 50),   # afternoon session — before close
@@ -56,9 +69,15 @@ def _now_et() -> datetime.datetime:
     return datetime.datetime.now(ET)
 
 
+def _is_market_holiday(dt: datetime.datetime) -> bool:
+    return dt.date().isoformat() in _MARKET_HOLIDAYS
+
+
 def _is_market_hours() -> bool:
-    t = _now_et().time()
-    return MARKET_OPEN <= t <= MARKET_CLOSE and _now_et().weekday() < 5   # Mon–Fri
+    now = _now_et()
+    if now.weekday() >= 5 or _is_market_holiday(now):
+        return False
+    return MARKET_OPEN <= now.time() <= MARKET_CLOSE
 
 
 def _seconds_until(target_time: datetime.time) -> float:
@@ -135,7 +154,7 @@ def _write_heartbeat():
 def _run_missed_sessions(last_ran: dict):
     """On startup, fire any sessions that passed while the scheduler was down."""
     now = _now_et()
-    if now.weekday() >= 5:   # skip weekends
+    if now.weekday() >= 5 or _is_market_holiday(now):
         return
     for session_time in SESSION_TIMES:
         label = session_time.strftime("%H:%M")
@@ -149,8 +168,8 @@ def _run_missed_sessions(last_ran: dict):
                 _mark_ran(label, last_ran)
                 log.info(f"[{label}] Missed session complete")
             except Exception as e:
-                log.error(f"[{label}] Missed session failed: {e}")
-                _mark_ran(label, last_ran)   # don't retry on next loop
+                log.error(f"[{label}] Missed session failed: {e} — marked done, will not retry; next scheduled session fires normally")
+                _mark_ran(label, last_ran)
 
 
 def main():
@@ -169,6 +188,10 @@ def main():
             now = _now_et()
 
             # ── Full sessions ──────────────────────────────────────────────────────
+            if now.weekday() >= 5 or _is_market_holiday(now):
+                time.sleep(MONITOR_INTERVAL_SECS)
+                continue
+
             for session_time in SESSION_TIMES:
                 label = session_time.strftime("%H:%M")
                 session_today = now.replace(

@@ -98,7 +98,7 @@ class AlpacaClient:
             "type": order_type,
             "time_in_force": "day",
         }
-        if limit_price:
+        if limit_price is not None:
             payload["limit_price"] = str(limit_price)
         if stop_loss_price:
             # Bracket order — Alpaca holds the stop server-side
@@ -212,7 +212,7 @@ class AlpacaClient:
         except Exception:
             return set()
 
-    def get_last_fill(self, symbol: str, side: str | None = None, days: int = 14) -> dict | None:
+    def get_last_fill(self, symbol: str, side: str | None = None, days: int = 60) -> dict | None:
         """
         Most recent filled order for a symbol (optionally a given side), newest first.
         Used to reconcile a position that closed server-side (stop fired while app was

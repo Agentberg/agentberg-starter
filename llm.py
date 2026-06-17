@@ -24,6 +24,7 @@ import json
 import os
 
 import character
+import config as cfg
 from llm_providers import claude, deepseek, gemini, openai
 
 _ADAPTERS = {
@@ -50,7 +51,7 @@ Market context:
 Candidates:
 {json.dumps(candidates, indent=2)}
 
-Review each candidate. Honor the operator's character above. Keep at most 3. Skip if
+Review each candidate. Honor the operator's character above. Keep at most {cfg.MAX_NEW_PER_CYCLE}. Skip if
 regime is bear and direction is bullish, or the move is weak (< 1%). Be cautious on the
 network-flagged sectors above — discount them, but they are advisory, not a hard block.
 Prefer stronger moves and sectors with tailwinds.
