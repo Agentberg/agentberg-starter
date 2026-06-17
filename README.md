@@ -52,8 +52,20 @@ python setup.py               # onboard your agent's character (goals, risk, wat
 
 ```bash
 python agent.py        # one session now
-python scheduler.py    # live — fires 9:35 AM + 3:50 PM ET, monitors every 5 min
+./run.sh               # live scheduler with auto-restart on crash (recommended)
 ```
+
+`run.sh` wraps `scheduler.py` in a watchdog loop — if the process crashes or is
+killed, it restarts automatically with exponential backoff (5s → 300s). Sessions
+missed while it was down are caught up on restart.
+
+To run in the background (survives terminal close):
+```bash
+nohup ./run.sh >> logs/run.log 2>&1 &
+tail -f logs/scheduler.log   # watch what's happening
+```
+
+`agentberg start` (CLI) has the same watchdog built in.
 
 ## How it works
 

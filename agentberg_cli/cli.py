@@ -297,7 +297,26 @@ def cmd_run(args) -> None:
 
 
 def cmd_start(args) -> None:
-    subprocess.run([sys.executable, "scheduler.py"], cwd=_folder(args))
+    import time as _time
+    folder = _folder(args)
+    backoff = 5
+    max_backoff = 300
+    print("[watchdog] Starting scheduler — auto-restarts on crash. Ctrl-C to stop.")
+    while True:
+        t0 = _time.monotonic()
+        result = subprocess.run([sys.executable, "scheduler.py"], cwd=folder)
+        elapsed = _time.monotonic() - t0
+        if elapsed > 60:
+            backoff = 5   # reset: it ran long enough to be considered healthy
+        code = result.returncode
+        label = "exited cleanly" if code == 0 else f"crashed (code {code})"
+        print(f"[watchdog] Scheduler {label} — restarting in {backoff}s (Ctrl-C to abort)")
+        try:
+            _time.sleep(backoff)
+        except KeyboardInterrupt:
+            print("[watchdog] Stopped.")
+            break
+        backoff = min(backoff * 2, max_backoff)
 
 
 def cmd_chat(args) -> None:

@@ -17,6 +17,7 @@ Or run as a background process:
 """
 
 import json
+import os
 import time
 import logging
 import datetime
@@ -101,7 +102,8 @@ def run_monitor():
 
 
 CRASH_RECOVERY_SECS = 60   # wait before resuming loop after unexpected error
-STATE_FILE = Path("logs/scheduler_state.json")
+STATE_FILE     = Path("logs/scheduler_state.json")
+HEARTBEAT_FILE = Path("logs/scheduler_heartbeat.json")
 
 
 def _load_state() -> dict:
@@ -118,6 +120,16 @@ def _save_state(last_ran: dict):
         STATE_FILE.write_text(json.dumps(last_ran))
     except Exception as e:
         log.warning(f"[state] Could not save state: {e}")
+
+
+def _write_heartbeat():
+    try:
+        HEARTBEAT_FILE.write_text(json.dumps({
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "pid": os.getpid(),
+        }))
+    except Exception:
+        pass
 
 
 def _run_missed_sessions(last_ran: dict):
@@ -153,6 +165,7 @@ def main():
 
     while True:
         try:
+            _write_heartbeat()
             now = _now_et()
 
             # ── Full sessions ──────────────────────────────────────────────────────
