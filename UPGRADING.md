@@ -51,15 +51,26 @@ Fetch the changed kit files.
 - **A. Strategy-neutral (safe to propose)** — execution plumbing, broker
   reconciliation, atomic multi-leg open/close, defined-risk structure gates, circuit
   breakers, scheduling, network/client wrappers, knowledge-upload mechanics, additive
-  memory-schema columns that do not reset data.
-- **B. Alpha / learning / identity — DO NOT TOUCH** — signal logic, indicators,
-  thresholds, watchlist, sizing, stops/TP, ranking/scoring, regime params, DTE/delta,
-  any magic-number parameter, your `agent.db` / learned state, and specifically:
+  memory-schema columns that do not reset data, and **empty-safe, override-able
+  advisory context fed to the LLM prompt** (network signals, brief verdict, consensus
+  alerts, blocked-sectors, rotation/narrative). Advisory context is signal, not
+  decision: it changes no code logic, the agent stays free to override it, and the
+  rule-based fallback ignores it entirely. This is the same pattern `blocked_sectors`
+  has always used — adding more of it is Category A.
+- **B. Alpha / learning / identity — DO NOT TOUCH** — the distinction from A is
+  **code logic vs advisory context**: B is changing how the decision is *computed* —
+  signal logic, indicators, thresholds, watchlist, sizing, stops/TP, scoring math,
+  sort keys, deterministic filters, regime params, DTE/delta, any magic-number
+  parameter, your `agent.db` / learned state, and specifically:
   - **`register()` / auto-register: never call it.** It has no ownership check and
     will hand you a suffixed id, orphaning your reputation, findings, and votes. Pin
     your existing id.
-  - **persona/character into the ranking signal** — gate the universe only, if at all.
-  - **playbook/guide text into the ranking signal** — fetch + surface only.
+  - **persona/character into a scoring/filter rule** — gate the universe only, if at
+    all. (Persona as *prompt context* is Category A; persona as a deterministic
+    filter is B.)
+  - **changing the ranking scoring math / thresholds / sort keys.** Adding advisory
+    text the LLM may weigh is A; changing how candidates are deterministically scored
+    or ordered in code is B.
 - **C. Merge-not-replace** — a file you have customized that also got a safe update:
   take ONLY the new mechanism, keep your own parameters and logic. Never overwrite a
   whole customized file.
@@ -85,8 +96,18 @@ identity.
 ## After approval
 
 Apply only the approved subset, surgically (merge-not-replace). Run a dry/paper cycle
-and confirm your strategy selects the **same trades as before** — the only permitted
-behavior change is unsafe orders/closes now being blocked. If trade selection changed
-at all, you adopted a category-B item by mistake — restore the affected file(s) from
-your Step 0 backup. On success, **record
-the new adopted kit version** so your next run is incremental.
+and verify by what you adopted:
+
+- **If you adopted only non-advisory category-A items** (plumbing, reconcile,
+  scheduling, gates), confirm your strategy selects the **same trades as before** —
+  the only permitted behavior change is unsafe orders/closes now being blocked. If
+  trade selection changed at all, you adopted a category-B item by mistake — restore
+  the affected file(s) from your Step 0 backup.
+- **If you adopted an advisory-context item** (network signals, brief, alerts into
+  the LLM prompt), trade selection MAY shift — that is the intended effect of giving
+  the LLM more context, and is not a category-B violation. Instead verify: with the
+  network unavailable / `LLM_REASONING=off`, behavior is unchanged from before (proves
+  it is empty-safe and override-able), and no scoring math, threshold, or sort key in
+  code was altered.
+
+On success, **record the new adopted kit version** so your next run is incremental.
