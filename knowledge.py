@@ -112,7 +112,7 @@ def maybe_upload(client, agent_id: str, token: str | None = None) -> dict:
 # This kit's version. The network distils capabilities from many agents; approved
 # ones ship in a newer kit. We only ever NOTIFY — adopting is deliberate (see UPGRADING.md)
 # and operator-reviewed. A running, money-touching agent is never silently rewritten.
-KIT_VERSION = "2.3.0"
+KIT_VERSION = "2.4.0"
 
 
 def _ver(s: str) -> tuple:
