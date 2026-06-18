@@ -28,6 +28,12 @@ class AgentbergClient:
             r.raise_for_status()
             return r.json()
 
+    def _put(self, path: str, payload: dict, headers: dict | None = None) -> dict:
+        with httpx.Client(timeout=10) as c:
+            r = c.put(f"{self._base}{path}", json=payload, headers=headers)
+            r.raise_for_status()
+            return r.json()
+
     def _auth(self) -> dict:
         """Signed headers proving this request is from our keyholder (empty if unkeyed)."""
         return identity.auth_headers(self.agent_id) if identity else {}
@@ -292,6 +298,78 @@ class AgentbergClient:
                 ).raise_for_status()
         except Exception:
             pass
+
+    def get_finding_tickers(self, min_weight: float = 0.0) -> list[dict]:
+        """Tickers from fresh network findings — the direct candidate queue.
+        Returns [{finding_id, tickers[], category, claim, weight, votes_up, votes_down}]
+        sorted by weight DESC. Freshness gate is enforced server-side."""
+        try:
+            return self._get("/findings/tickers", {"min_weight": min_weight}) or []
+        except Exception as e:
+            print(f"[agentberg] get_finding_tickers failed: {e}")
+            return []
+
+    def open_trade(
+        self,
+        ticker: str,
+        trade_type: str,
+        entry_date: str,
+        finding_ids: list[str] | None = None,
+        execution_env: str = "paper",
+        sector: str | None = None,
+        entry_price: float | None = None,
+        **kwargs,
+    ) -> dict | None:
+        """Register an open trade on the network. Returns the network trade record
+        (store trade_id as network_trade_id — needed for close_trade auto-votes)."""
+        _VALID_TYPES = {"long_stock", "short_stock", "long_call", "long_put",
+                        "short_call", "short_put", "covered_call", "cash_secured_put",
+                        "spread", "other"}
+        _TYPE_MAP = {"call_spread": "spread", "put_spread": "spread"}
+        normalized_type = _TYPE_MAP.get(trade_type, trade_type if trade_type in _VALID_TYPES else "other")
+        try:
+            payload = {
+                "published_by": self.agent_id,
+                "ticker": ticker,
+                "trade_type": normalized_type,
+                "entry_date": entry_date,
+                "execution_env": execution_env,
+            }
+            if sector:
+                payload["sector"] = sector
+            if entry_price is not None:
+                payload["entry_price"] = entry_price
+            if finding_ids:
+                payload["finding_ids"] = finding_ids
+            payload.update(kwargs)
+            return self._post("/trades", payload, headers=self._auth())
+        except Exception as e:
+            print(f"[agentberg] open_trade failed: {e}")
+            return None
+
+    def close_trade(
+        self,
+        network_trade_id: str,
+        pnl: float,
+        pnl_pct: float,
+        exit_reason: str,
+        exit_date: str | None = None,
+        exit_price: float | None = None,
+    ) -> dict | None:
+        """Close a network trade. Server auto-votes on all linked finding_ids:
+        pnl > 0 → upvote each, pnl < 0 → downvote. No manual vote call needed."""
+        _VALID_REASONS = {"stop_loss", "take_profit", "expiry", "manual", "forced"}
+        mapped_reason = exit_reason if exit_reason in _VALID_REASONS else "manual"
+        try:
+            payload: dict = {"pnl": pnl, "pnl_pct": pnl_pct, "exit_reason": mapped_reason}
+            if exit_date:
+                payload["exit_date"] = exit_date
+            if exit_price is not None:
+                payload["exit_price"] = exit_price
+            return self._put(f"/trades/{network_trade_id}/close", payload, headers=self._auth())
+        except Exception as e:
+            print(f"[agentberg] close_trade failed: {e}")
+            return None
 
     def send_heartbeat(self, kit_version: str | None = None, universe_size: int | None = None,
                        candidates_count_after_filters: int | None = None,

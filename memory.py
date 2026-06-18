@@ -51,7 +51,8 @@ def init_db():
                 long_symbol     TEXT,        -- tradeable symbol of the long leg / equity / option
                 short_symbol    TEXT,        -- short leg of a spread (NULL otherwise)
                 multiplier      INTEGER DEFAULT 1,   -- 1 for equity, 100 for options
-                order_id        TEXT         -- Alpaca entry order id
+                order_id        TEXT,        -- Alpaca entry order id
+                network_trade_id TEXT        -- Agentberg network trade id (for auto-vote on close)
             );
             -- signal_data: JSON blob for any signal metadata at entry
             -- e.g. {"rsi": 44.2, "sma_20": 182.5, "day_change": 0.013}
@@ -96,7 +97,9 @@ def init_db():
                          ("multiplier", "INTEGER DEFAULT 1"), ("order_id", "TEXT"),
                          # network publish marker — set once a closed trade is sent to
                          # Agentberg, so every trade publishes exactly once (see agent.py).
-                         ("published_at", "TEXT")]:
+                         ("published_at", "TEXT"),
+                         # network trade id — stored at open, used to call close_trade() for auto-votes.
+                         ("network_trade_id", "TEXT")]:
             try:
                 conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
             except sqlite3.OperationalError:
@@ -119,12 +122,15 @@ def record_trade_open(
     short_symbol: str | None = None,
     multiplier: int = 1,
     order_id: str | None = None,
+    network_trade_id: str | None = None,
 ) -> int:
     """
     Open a trade. Pass signal_data to record the entry signals, and the trade
     RATIONALE (private to the operator): `thesis` (why you entered, grounded in the
     real signal + AI reason), `expected_pct` (target), `stop_pct` (stop). These are
     recorded NOW and held to at close, so the rationale can't be hallucinated later.
+    Pass network_trade_id when the trade was registered on Agentberg via open_trade()
+    so close_trade() can be called on close for auto-voting on linked findings.
     """
     today = datetime.date.today().isoformat()
     now = datetime.datetime.now().isoformat(timespec="seconds")
@@ -133,12 +139,12 @@ def record_trade_open(
             """INSERT INTO trades
                (symbol, sector, trade_type, entry_price, qty, status, session_date,
                 opened_at, signal_data, entry_thesis, expected_pct, stop_pct,
-                long_symbol, short_symbol, multiplier, order_id)
-               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                long_symbol, short_symbol, multiplier, order_id, network_trade_id)
+               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (symbol, sector, trade_type, entry_price, qty, today, now,
              json.dumps(signal_data) if signal_data else None,
              thesis, expected_pct, stop_pct,
-             long_symbol or symbol, short_symbol, multiplier, order_id),
+             long_symbol or symbol, short_symbol, multiplier, order_id, network_trade_id),
         )
         return cur.lastrowid
 

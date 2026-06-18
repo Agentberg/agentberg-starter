@@ -98,6 +98,8 @@ def reconcile_ledger():
             t["id"], exit_price=exit_price, pnl=pnl, pnl_pct=pnl_pct,
             exit_reason="reconciled_broker",
         )
+        if t.get("network_trade_id"):
+            _agentberg.close_trade(t["network_trade_id"], pnl=pnl, pnl_pct=pnl_pct, exit_reason="manual")
         reconciled += 1
     if reconciled:
         print(f"[reconcile] Closed {reconciled} trade(s) from broker truth (server-side/offline exits)")
@@ -187,6 +189,16 @@ def run_session():
         top = entry_signals[0]
         print(f"    Network entry signal (weight {top.get('weight', '?')}x): {top.get('claim', '')[:80]}")
 
+    # Build finding ticker map: {ticker: finding_id} (highest-weight finding per ticker)
+    finding_ticker_map: dict[str, str] = {}
+    finding_tickers_data = _agentberg.get_finding_tickers()
+    for item in finding_tickers_data:
+        for t in item.get("tickers", []):
+            if t not in finding_ticker_map:  # already sorted weight DESC
+                finding_ticker_map[t] = str(item["finding_id"])
+    if finding_ticker_map:
+        print(f"    Finding ticker queue: {len(finding_ticker_map)} ticker(s) from {len(finding_tickers_data)} network finding(s)")
+
     brief = _agentberg.get_network_brief(regime=regime)
     if brief:
         verdict  = brief.get("verdict", "amber").upper()
@@ -268,6 +280,38 @@ def run_session():
             })
             print(f"    CANDIDATE {ticker} [{sector}]: {direction} {day_change:+.2%} @ ${latest_close:.2f}")
 
+    # Mark watchlist candidates that appear in the finding ticker queue
+    for c in candidates:
+        if c["ticker"] in finding_ticker_map:
+            c["from_finding_id"] = finding_ticker_map[c["ticker"]]
+
+    # Add network-sourced tickers not already in candidates (cap: top 20 from queue, up to 10 new)
+    candidate_tickers = {c["ticker"] for c in candidates}
+    added_from_network = 0
+    for fk_ticker, fk_finding_id in list(finding_ticker_map.items())[:20]:
+        if fk_ticker in candidate_tickers or added_from_network >= 10:
+            continue
+        fk_bars = _alpaca.get_bars(fk_ticker, timeframe="1Day", limit=40)
+        if len(fk_bars) < 2:
+            continue
+        fk_close = float(fk_bars[-1]["c"])
+        fk_prev  = float(fk_bars[-2]["c"])
+        fk_chg   = (fk_close - fk_prev) / fk_prev
+        fk_dir   = "bullish" if fk_chg > 0.003 else ("bearish" if fk_chg < -0.003 else None)
+        if not fk_dir:
+            continue
+        candidates.append({
+            "ticker":          fk_ticker,
+            "sector":          "Network",
+            "direction":       fk_dir,
+            "price":           fk_close,
+            "day_change":      fk_chg,
+            "from_finding_id": fk_finding_id,
+        })
+        print(f"    CANDIDATE {fk_ticker} [Network finding]: {fk_dir} {fk_chg:+.2%} @ ${fk_close:.2f}")
+        candidate_tickers.add(fk_ticker)
+        added_from_network += 1
+
     print(f"    {len(candidates)} candidate(s) before LLM filter")
 
     # ── Step 3b: LLM ranking (optional) ───────────────────────────────────────
@@ -344,8 +388,16 @@ def run_session():
                 take_profit_price = round(live_price * (1 + cfg.EQUITY_TAKE_PROFIT_PCT), 2) if side == "buy" else None
                 order      = _alpaca.submit_order(ticker, qty, side,
                                 stop_loss_price=stop_price, take_profit_price=take_profit_price)
+                net_open   = _agentberg.open_trade(
+                    ticker=ticker, trade_type="long_stock",
+                    entry_date=datetime.date.today().isoformat(),
+                    finding_ids=[c["from_finding_id"]] if c.get("from_finding_id") else None,
+                    sector=sector, entry_price=live_price,
+                    execution_env="paper" if cfg.ALPACA_PAPER else "live",
+                )
                 trade_id   = memory.record_trade_open(ticker, sector, live_price, qty,
-                                signal_data=signal, thesis=thesis, expected_pct=expected_pct, stop_pct=stop_pct)
+                                signal_data=signal, thesis=thesis, expected_pct=expected_pct, stop_pct=stop_pct,
+                                network_trade_id=net_open.get("trade_id") if net_open else None)
                 print(f"    ORDER {ticker}: {side} ×{qty} @ ~${live_price:.2f}  stop=${stop_price or 'none'}  tp=${take_profit_price or 'none'}")
                 executed.append({**c, "qty": qty, "order_id": order["id"], "memory_id": trade_id})
                 traded_this_session.add(ticker)
@@ -386,9 +438,17 @@ def run_session():
                 continue
             try:
                 order    = _alpaca.submit_option_single(contract["symbol"], qty=1, side="buy", limit_price=limit_price)
+                net_open = _agentberg.open_trade(
+                    ticker=ticker, trade_type=f"long_{option_type}",
+                    entry_date=datetime.date.today().isoformat(),
+                    finding_ids=[c["from_finding_id"]] if c.get("from_finding_id") else None,
+                    sector=sector, entry_price=limit_price,
+                    execution_env="paper" if cfg.ALPACA_PAPER else "live",
+                )
                 trade_id = memory.record_trade_open(ticker, sector, limit_price, 1, trade_type=f"long_{option_type}",
                                 signal_data=signal, thesis=thesis, expected_pct=expected_pct, stop_pct=stop_pct,
-                                long_symbol=contract["symbol"])
+                                long_symbol=contract["symbol"],
+                                network_trade_id=net_open.get("trade_id") if net_open else None)
                 print(f"    ORDER {ticker} {option_type.upper()} {contract['expiration_date']} ${contract['strike_price']} δ={delta:.2f} @ ${limit_price:.2f}")
                 executed.append({**c, "symbol": contract["symbol"], "premium": limit_price, "memory_id": trade_id})
                 traded_this_session.add(ticker)
@@ -433,10 +493,18 @@ def run_session():
                 continue
             try:
                 order    = _alpaca.submit_option_spread(buy_leg["symbol"], sell_leg["symbol"], qty=1, net_debit=net_debit)
+                net_open = _agentberg.open_trade(
+                    ticker=ticker, trade_type="spread",
+                    entry_date=datetime.date.today().isoformat(),
+                    finding_ids=[c["from_finding_id"]] if c.get("from_finding_id") else None,
+                    sector=sector, entry_price=net_debit,
+                    execution_env="paper" if cfg.ALPACA_PAPER else "live",
+                )
                 trade_id = memory.record_trade_open(ticker, sector, net_debit, 1, trade_type=f"{option_type}_spread",
                                 signal_data=signal, thesis=thesis, expected_pct=expected_pct, stop_pct=stop_pct,
                                 long_symbol=buy_leg["symbol"], short_symbol=sell_leg["symbol"],
-                                multiplier=100, order_id=order.get("id"))
+                                multiplier=100, order_id=order.get("id"),
+                                network_trade_id=net_open.get("trade_id") if net_open else None)
                 print(f"    SPREAD {ticker} {option_type.upper()} ${float(buy_leg['strike_price']):.0f}/${float(sell_leg['strike_price']):.0f} debit=${net_debit:.2f}")
                 executed.append({**c, "memory_id": trade_id, "net_debit": net_debit})
                 traded_this_session.add(ticker)
@@ -546,6 +614,8 @@ def check_positions():
             memory.record_trade_close(trade["id"], exit_price=exit_price, pnl=net_pl_dollars,
                                       pnl_pct=net_pct, exit_reason=reason)
             print(f"    [journal] {trade['symbol']} closed {net_pct:+.1%} ({reason}) — review with `python journal.py`")
+            if trade.get("network_trade_id"):
+                _agentberg.close_trade(trade["network_trade_id"], pnl=net_pl_dollars, pnl_pct=net_pct, exit_reason=reason)
             _vote_sector_outcome(trade, net_pl_dollars)
         except Exception as e:
             print(f"[monitor] Spread close failed {trade['symbol']}: {e}")
@@ -590,8 +660,9 @@ def _record_close(symbol: str, reason: str, pnl_pct: float):
         return
     pnl_dollars = (trade.get("entry_price") or 0) * (trade.get("qty") or 0) * pnl_pct
     memory.record_trade_close(trade["id"], exit_price=0, pnl=pnl_dollars, pnl_pct=pnl_pct, exit_reason=reason)
-    # Transparency to the operator — the recorded thesis is now checked against reality.
     print(f"    [journal] {symbol} closed {pnl_pct:+.1%} ({reason}) — review with `python journal.py`")
+    if trade.get("network_trade_id"):
+        _agentberg.close_trade(trade["network_trade_id"], pnl=pnl_dollars, pnl_pct=pnl_pct, exit_reason=reason)
     _vote_sector_outcome(trade, pnl_dollars)
 
 

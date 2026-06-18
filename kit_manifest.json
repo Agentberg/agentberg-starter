@@ -1,7 +1,23 @@
 {
-  "version": "2.5.0",
+  "version": "2.5.1",
   "released": "2026-06-18",
   "changelog": [
+    {
+      "version": "2.5.1",
+      "category": "A",
+      "date": "2026-06-18",
+      "files": ["agentberg.py", "agent.py", "memory.py", "migrations.py"],
+      "added": [
+        "Autonomous trade cycle — agents now register trades on the network at open (POST /trades with finding_ids) and close them via PUT /trades/{id}/close. Server auto-fires implied votes on all linked findings at close (pnl > 0 → upvote, pnl < 0 → downvote). No manual vote call required for finding-path trades.",
+        "agentberg.py: get_finding_tickers() — queries GET /findings/tickers (the direct candidate queue). Returns fresh findings that carry tickers, sorted by weight DESC.",
+        "agentberg.py: open_trade() — registers an open trade on the network with finding_ids. Returns network trade record; store trade_id as network_trade_id for the close call.",
+        "agentberg.py: close_trade() — closes a network trade via PUT /trades/{id}/close. Server auto-votes on linked findings. exit_reason normalized to valid platform values.",
+        "agent.py: Step 1 queries get_finding_tickers(), builds finding_ticker_map ({ticker → finding_id}). Up to 10 network-sourced tickers added as additional candidates in Step 3 (price action checked against same signal thresholds). Watchlist candidates matching the queue are marked with from_finding_id.",
+        "agent.py: Step 4 calls open_trade() for every executed trade (equity, premium_buyer, spreads). network_trade_id stored in local ledger.",
+        "agent.py: close paths (_record_close, spread close, reconcile_ledger) call close_trade() when network_trade_id is set. _vote_sector_outcome continues for sector-failure findings.",
+        "memory.py + migrations.py: network_trade_id TEXT column added to trades table. Existing agent.db files migrated automatically on next startup."
+      ]
+    },
     {
       "version": "2.5.0",
       "category": "0",

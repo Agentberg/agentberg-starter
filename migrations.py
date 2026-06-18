@@ -25,6 +25,8 @@ _MIGRATIONS = [
     ("order_id",        "TEXT"),
     # v2.1.0 — network publish marker
     ("published_at",    "TEXT"),
+    # v2.5.1 — network trade id for auto-vote on close
+    ("network_trade_id", "TEXT"),
 ]
 
 
