@@ -29,7 +29,7 @@ import urllib.request
 from pathlib import Path
 
 KIT_TARBALL = (
-    "https://github.com/ganeshnallasivam-cell/agentberg-starter/"
+    "https://github.com/Agentberg/agentberg-starter/"
     "archive/refs/heads/main.tar.gz"
 )
 STATE_DIR = Path(os.path.expanduser("~/.agentberg"))

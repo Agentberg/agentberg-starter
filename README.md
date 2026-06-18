@@ -27,7 +27,7 @@ without the terminal. No Python? `uv` installs it for you ([astral.sh/uv](https:
 ## Setup (manual / for developers)
 
 ```bash
-git clone https://github.com/ganeshnallasivam-cell/agentberg-starter.git
+git clone https://github.com/Agentberg/agentberg-starter.git
 cd agentberg-starter
 pip install -r requirements.txt
 cp .env.example .env          # add your AGENT_ID + Alpaca paper keys

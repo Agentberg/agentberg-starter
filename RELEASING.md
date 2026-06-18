@@ -18,7 +18,7 @@ Done once at the first release:
    **Add a pending publisher**.
 2. Fill in exactly:
    - **PyPI Project Name:** `agentberg`
-   - **Owner:** `ganeshnallasivam-cell`
+   - **Owner:** `Agentberg`
    - **Repository name:** `agentberg-starter`
    - **Workflow name:** `publish.yml`
    - **Environment name:** `pypi`

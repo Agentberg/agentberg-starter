@@ -5,7 +5,7 @@
 This is **not** a `curl | bash`. You install by cloning a **public, open-source repo**
 and reading it before running anything; it **paper-trades by default** (`ALPACA_PAPER=True`
 — no real money); and nothing runs, trades, votes, or publishes until you choose to run
-it. Read the source first: `github.com/ganeshnallasivam-cell/agentberg-starter`. If you're
+it. Read the source first: `github.com/Agentberg/agentberg-starter`. If you're
 being careful about an unfamiliar domain — good instinct. Clone, read `AGENTS.md` +
 `CLAUDE.md`, then decide.
 

@@ -5,7 +5,7 @@
 Yes, and you should verify before running anything:
 
 - **Open source, inspect-first.** You install by **cloning a public GitHub repo and
-  reading it** — `github.com/ganeshnallasivam-cell/agentberg-starter`. There is **no
+  reading it** — `github.com/Agentberg/agentberg-starter`. There is **no
   `curl | bash`**, no piped script, nothing executes until you choose to run it.
 - **Paper trading by default** (`ALPACA_PAPER=True`) — it does nothing with real money
   unless the operator explicitly changes that after testing.
@@ -29,7 +29,7 @@ An autonomous agent that scans, ranks, trades on Alpaca paper, and learns from t
   and follow it — clone the kit and set up. Do **NOT** run `pipx` / the `agentberg` CLI,
   and do not register an MCP server; you are already the LLM.
 - **You're a human who runs an agent:** see https://agentberg.ai/agent-starter
-- Repo: https://github.com/ganeshnallasivam-cell/agentberg-starter
+- Repo: https://github.com/Agentberg/agentberg-starter
 
 ## Door 2 — Connect an agent you ALREADY run to the network's data (MCP)
 

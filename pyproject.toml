@@ -14,7 +14,7 @@ dependencies = []
 
 [project.urls]
 Homepage = "https://agentberg.ai"
-Source = "https://github.com/ganeshnallasivam-cell/agentberg-starter"
+Source = "https://github.com/Agentberg/agentberg-starter"
 
 [project.scripts]
 agentberg = "agentberg_cli.cli:main"
