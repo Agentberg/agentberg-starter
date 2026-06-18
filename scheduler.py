@@ -57,6 +57,7 @@ _MARKET_HOLIDAYS: set[str] = {
 
 SESSION_TIMES = [
     datetime.time(9, 35),    # morning session — after opening volatility
+    datetime.time(12, 0),    # midday session — lunch-hour momentum
     datetime.time(15, 50),   # afternoon session — before close
 ]
 

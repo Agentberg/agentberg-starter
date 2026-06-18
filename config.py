@@ -45,32 +45,33 @@ STRATEGY_MODE: str = "equity"
 # advisory (weighed in AI ranking, not skipped); only YOUR own MANUAL_BLOCKED_SECTORS
 # (below) are hard-skipped.
 WATCHLIST: dict[str, list[str]] = {
-    "Technology":           ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMD"],
-    "Energy":               ["XOM", "CVX", "COP"],
-    "Financials":           ["JPM", "BAC", "GS"],
-    "Healthcare":           ["UNH", "JNJ", "ABT"],
-    "Industrials":          ["CAT", "DE", "HON"],
-    "Consumer Discretionary": ["AMZN", "TSLA", "HD"],
+    "Technology":             ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMD", "TSLA", "NFLX", "PLTR", "SMCI", "MSTR", "COIN", "RKLB", "HOOD", "MARA"],
+    "Energy":                 ["XOM", "CVX", "COP", "SLB", "HAL", "OXY"],
+    "Financials":             ["JPM", "BAC", "GS", "MS", "WFC", "C", "COF"],
+    "Healthcare":             ["UNH", "JNJ", "ABT", "LLY", "MRK", "PFE", "AMGN"],
+    "Industrials":            ["CAT", "DE", "HON", "GE", "LMT", "BA", "UPS"],
+    "Consumer Discretionary": ["AMZN", "HD", "NKE", "SBUX", "TGT", "WMT", "MELI"],
 }
 
 # ── Position sizing ────────────────────────────────────────────────────────────
-MAX_POSITIONS:       int   = 5      # max concurrent open positions
-MAX_POSITION_PCT:    float = 0.05   # 5% of portfolio per equity trade
+MAX_POSITIONS:       int   = 30     # max concurrent open positions (increased for high activity)
+MAX_POSITION_PCT:    float = 0.01   # 1% of portfolio per equity trade (smaller size avoids BP exhaustion)
 MAX_OPTION_PCT:      float = 0.02   # 2% per single-leg options trade
 MAX_SPREAD_PCT:      float = 0.02   # 2% per spread (max loss = debit paid)
-MAX_NEW_PER_CYCLE:   int   = 3      # cap new positions opened in one session
+MAX_NEW_PER_CYCLE:   int   = 10     # cap new positions opened in one session (forces instant activity)
 
 # ── Stop loss / take profit ────────────────────────────────────────────────────
-EQUITY_STOP_LOSS_PCT:   float = 0.02   # exit equity if down 2%
+EQUITY_STOP_LOSS_PCT:   float = 0.04   # exit equity if down 4% (widened to avoid quick shakeouts)
 OPTION_STOP_LOSS_PCT:   float = 0.50   # exit option if down 50% of premium paid
-TAKE_PROFIT_PCT:        float = 1.00   # exit at 100% gain on premium (2× paid)
+EQUITY_TAKE_PROFIT_PCT: float = 0.02   # exit equity at 2% gain — triggers frequently
+TAKE_PROFIT_PCT:        float = 1.00   # options: exit at 100% gain on premium (2× paid)
 
 # ── Options DTE window ─────────────────────────────────────────────────────────
 MIN_DTE: int = 21    # < 21 DTE: gamma risk spikes
 MAX_DTE: int = 45    # > 45 DTE: too much premium at risk for too long
 
 # ── Options delta targeting ────────────────────────────────────────────────────
-MIN_DELTA: float = 0.30    # below this: lottery ticket
+MIN_DELTA: float = 0.20    # below this: lottery ticket (lowered for more leverage/excitement)
 MAX_DELTA: float = 0.50    # above this: just trade the stock
 
 # ── IV Rank ────────────────────────────────────────────────────────────────────
@@ -86,7 +87,7 @@ EARNINGS_BLACKOUT_DAYS: int = 5       # NOT ENFORCED — placeholder; risk.py do
 MANUAL_BLOCKED_SECTORS: list[str] = []
 
 # Regimes to sit out entirely. "bear" means no new longs.
-BLOCKED_REGIMES: list[str] = ["bear"]
+BLOCKED_REGIMES: list[str] = []
 
 # ── Character overlay ──────────────────────────────────────────────────────────
 # If onboarding is complete (character.json), apply the operator's persona ON TOP of
@@ -115,7 +116,7 @@ if _c:
     if _c.get("max_loss_per_trade_pct") is not None:
         EQUITY_STOP_LOSS_PCT = float(_c["max_loss_per_trade_pct"]) / 100.0
     if _c.get("take_profit_pct") is not None:
-        TAKE_PROFIT_PCT = float(_c["take_profit_pct"]) / 100.0
+        EQUITY_TAKE_PROFIT_PCT = float(_c["take_profit_pct"]) / 100.0
     if _c.get("max_position_pct") is not None:
         MAX_POSITION_PCT = float(_c["max_position_pct"]) / 100.0
     if _c.get("max_positions") is not None:

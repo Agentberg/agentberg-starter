@@ -156,9 +156,9 @@ def run_session():
             print(f"    ⚠ HIGH-IMPACT EVENT: {ev['date']} — {ev['event']}")
 
         # Halve position size when market health is stressed
-        if health_label == "stressed":
-            position_size_override = cfg.MAX_POSITION_PCT * 0.5
-            print(f"    [RISK OVERRIDE] Health STRESSED — position size halved to {position_size_override:.1%}")
+        # if health_label == "stressed":
+        #     position_size_override = cfg.MAX_POSITION_PCT * 0.5
+        #     print(f"    [RISK OVERRIDE] Health STRESSED — position size halved to {position_size_override:.1%}")
     else:
         print("    [WARNING] Skills unavailable — continuing with network intelligence only")
 
@@ -289,7 +289,7 @@ def run_session():
         thesis = f"{direction} {ticker} [{sector}] — {c.get('day_change', 0):+.1%} momentum"
         if c.get("reason"):
             thesis += f"; AI: {c['reason']}"
-        expected_pct = cfg.TAKE_PROFIT_PCT
+        expected_pct = cfg.EQUITY_TAKE_PROFIT_PCT if mode == "equity" else cfg.TAKE_PROFIT_PCT
         stop_pct = cfg.EQUITY_STOP_LOSS_PCT if mode == "equity" else cfg.OPTION_STOP_LOSS_PCT
         signal = {"day_change": c.get("day_change"), "direction": direction}
 
@@ -312,7 +312,7 @@ def run_session():
                 qty          = max(1, int(pos_value / live_price))
                 side         = "buy" if direction == "bullish" else "sell"
                 stop_price        = round(live_price * (1 - cfg.EQUITY_STOP_LOSS_PCT), 2) if side == "buy" else None
-                take_profit_price = round(live_price * (1 + cfg.TAKE_PROFIT_PCT), 2)       if side == "buy" else None
+                take_profit_price = round(live_price * (1 + cfg.EQUITY_TAKE_PROFIT_PCT), 2) if side == "buy" else None
                 order      = _alpaca.submit_order(ticker, qty, side,
                                 stop_loss_price=stop_price, take_profit_price=take_profit_price)
                 trade_id   = memory.record_trade_open(ticker, sector, live_price, qty,
@@ -532,7 +532,7 @@ def check_positions():
         unrealised_pnl_pct = float(pos.get("unrealized_plpc", 0))
         asset_class = pos.get("asset_class", "")
         stop_threshold   = -cfg.EQUITY_STOP_LOSS_PCT if asset_class == "us_equity" else -cfg.OPTION_STOP_LOSS_PCT
-        profit_threshold = cfg.TAKE_PROFIT_PCT
+        profit_threshold = cfg.EQUITY_TAKE_PROFIT_PCT if asset_class == "us_equity" else cfg.TAKE_PROFIT_PCT
 
         reason = None
         if unrealised_pnl_pct <= stop_threshold:
