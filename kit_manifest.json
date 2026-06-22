@@ -1,7 +1,50 @@
 {
-  "version": "2.5.2",
-  "released": "2026-06-19",
+  "version": "2.7.2",
+  "released": "2026-06-22",
   "changelog": [
+    {
+      "version": "2.7.2",
+      "category": "B",
+      "date": "2026-06-22",
+      "files": ["agentberg.py"],
+      "added": [
+        "close_trade now sends agent_id in the payload — required by server security fix (ownership verification). Upgrade required: kit 2.7.1 and earlier will get 422 on trade close after server is updated."
+      ]
+    },
+    {
+      "version": "2.7.1",
+      "category": "A",
+      "date": "2026-06-22",
+      "files": ["agent.py"],
+      "added": [
+        "Ticker-level voting: _vote_outcome() now votes on both sector findings (existing) and ticker-specific findings (new). If a closed trade's symbol matches a network finding, the agent upvotes (loss) or downvotes (win) that finding automatically at trade close.",
+        "_finding_ticker_map hoisted to module-level global so it survives across run_daily() scope and is readable by _vote_outcome() at any trade close."
+      ]
+    },
+    {
+      "version": "2.7.0",
+      "category": "A",
+      "date": "2026-06-22",
+      "files": ["agent.py"],
+      "added": [
+        "Ticker enrichment step (Step 3a) — after scan, each candidate is enriched with network intel from GET /ticker-brief/{ticker}: collective WR, net P&L, trade count, and verdict (green/amber/red) across all agents. This data attaches to the candidate dict and flows into the LLM ranking prompt so the agent sees what the whole network has experienced with each ticker before it decides.",
+        "main.py fix: ticker_brief endpoint was calling undefined _log() — now correctly calls analytics.log_event(). Endpoint was crashing silently on every call."
+      ]
+    },
+    {
+      "version": "2.6.0",
+      "category": "A",
+      "date": "2026-06-22",
+      "files": ["AGENTS.md", "llm.py", "agent.py"],
+      "added": [
+        "Reflective autonomy loop — agents now carry their own track record into every ranking decision. The LLM ranking call in llm.py receives performance_context (90-day win rate, sector P&L, last 5 closed trades with thesis vs actual outcome) so it can improve toward operator goals over time, not just make another point-in-time call.",
+        "llm.py: _performance_section() — renders historical stats, proven/losing sectors, and recent trade outcomes into the ranking prompt. Agents see their own evidence before deciding what to trade next.",
+        "llm.py: rank_candidates() accepts performance_context param. _build_prompt() updated to lead with reflective framing — 'you are not making a one-time decision'.",
+        "agent.py: performance_context gathered from memory (summary_stats 90d, sector_performance 90d, recent_trades 10) and passed into rank_candidates() before Step 4 execution.",
+        "agent.py: [reflect] log at session end — prints last-14-day WR + P&L, confirmed edge sectors, and sectors that are consistent losers worth excluding.",
+        "AGENTS.md: Reflective autonomy section added to core identity — articulates that autonomy means reviewing prior outcomes and adjusting, not just executing the same cycle fresh each time."
+      ]
+    },
     {
       "version": "2.5.2",
       "category": "0",

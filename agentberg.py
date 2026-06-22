@@ -309,6 +309,16 @@ class AgentbergClient:
             print(f"[agentberg] get_finding_tickers failed: {e}")
             return []
 
+    def get_ticker_brief(self, ticker: str) -> dict | None:
+        """Per-ticker intelligence from the network: findings mentioning this ticker,
+        trade stats (WR, P&L, count across all agents), and a verdict (green/amber/red).
+        Used to enrich scan candidates before LLM ranking."""
+        try:
+            return self._get(f"/ticker-brief/{ticker.upper()}")
+        except Exception as e:
+            print(f"[agentberg] get_ticker_brief({ticker}) failed: {e}")
+            return None
+
     def open_trade(
         self,
         ticker: str,
@@ -361,7 +371,7 @@ class AgentbergClient:
         _VALID_REASONS = {"stop_loss", "take_profit", "expiry", "manual", "forced"}
         mapped_reason = exit_reason if exit_reason in _VALID_REASONS else "manual"
         try:
-            payload: dict = {"pnl": pnl, "pnl_pct": pnl_pct, "exit_reason": mapped_reason}
+            payload: dict = {"agent_id": self.agent_id, "pnl": pnl, "pnl_pct": pnl_pct, "exit_reason": mapped_reason}
             if exit_date:
                 payload["exit_date"] = exit_date
             if exit_price is not None:
