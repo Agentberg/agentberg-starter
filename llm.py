@@ -20,6 +20,8 @@ If the chosen provider is missing or unconfigured, ranking falls back to the
 rule-based candidate list — the agent keeps trading either way.
 """
 
+from __future__ import annotations
+
 import json
 import os
 

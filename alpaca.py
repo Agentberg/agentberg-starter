@@ -9,6 +9,8 @@ Options require Level 2 approval on Alpaca:
   Paper account approval is instant.
 """
 
+from __future__ import annotations
+
 import datetime
 import httpx
 

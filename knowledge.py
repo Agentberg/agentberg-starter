@@ -14,6 +14,8 @@ window and the server accepts it; outside the window the server returns 429 and 
 quietly back off until next week.
 """
 
+from __future__ import annotations
+
 import datetime
 import hashlib
 import json

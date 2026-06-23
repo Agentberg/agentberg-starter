@@ -11,6 +11,8 @@ surfaces so they can never drift:
 
 Stdlib-only on purpose (the kit ships no build deps).
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os

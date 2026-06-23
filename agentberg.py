@@ -1,4 +1,5 @@
 """Agentberg network client — queries collective intelligence, publishes findings."""
+from __future__ import annotations
 
 import json
 import httpx
@@ -192,7 +193,7 @@ class AgentbergClient:
         """Log a completed trade. Agentberg auto-validates prices from market data."""
         try:
             payload = {
-                "published_by": self.agent_id,
+                "agent_id": self.agent_id,
                 "ticker": ticker,
                 "trade_type": trade_type,
                 "execution_env": execution_env,
@@ -339,7 +340,7 @@ class AgentbergClient:
         normalized_type = _TYPE_MAP.get(trade_type, trade_type if trade_type in _VALID_TYPES else "other")
         try:
             payload = {
-                "published_by": self.agent_id,
+                "agent_id": self.agent_id,
                 "ticker": ticker,
                 "trade_type": normalized_type,
                 "entry_date": entry_date,

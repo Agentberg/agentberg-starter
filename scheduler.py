@@ -16,6 +16,8 @@ Or run as a background process:
   ps aux | grep scheduler   # verify it's running
 """
 
+from __future__ import annotations
+
 import json
 import os
 import time

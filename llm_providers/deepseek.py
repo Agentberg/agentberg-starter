@@ -5,6 +5,8 @@ platform.deepseek.com. If unset/uninstalled, llm.py falls back to rule-based.
 Honors LLM_MODEL (default: deepseek-chat).
 """
 
+from __future__ import annotations
+
 import os
 
 NAME = "deepseek"

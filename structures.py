@@ -21,6 +21,8 @@ add a registry entry whose every short leg is covered by a long; nothing else
 needs to change.
 """
 
+from __future__ import annotations
+
 import math
 
 # Each registry entry declares its legs by role, in order:

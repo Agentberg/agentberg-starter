@@ -188,6 +188,24 @@ def _folder_kit_version(folder: Path) -> str:
         return "0.0.0"
 
 
+def _sync_pyproject_version(folder: Path, version: str) -> None:
+    """Update the version = line in pyproject.toml if it exists in the agent folder."""
+    pf = folder / "pyproject.toml"
+    if not pf.exists():
+        return
+    lines = pf.read_text().splitlines()
+    out, updated = [], False
+    for ln in lines:
+        stripped = ln.strip()
+        if stripped.startswith("version") and "=" in stripped and not updated:
+            key = ln.split("=")[0]
+            ln = f'{key}= "{version}"'
+            updated = True
+        out.append(ln)
+    if updated:
+        pf.write_text("\n".join(out) + "\n")
+
+
 # ── .env ────────────────────────────────────────────────────────────────────────
 
 def _upsert(text: str, key: str, value: str) -> str:
@@ -556,6 +574,7 @@ def cmd_upgrade(args) -> None:
             adopted["files"][rel] = _sha256(folder / rel)
         if not review:
             adopted["version"] = latest
+            _sync_pyproject_version(folder, latest)
         _save_adopted(folder, adopted)
 
         print(f"\n✓ Applied {len(applied)} file(s) from {len(cat0)} Category 0 release(s).")

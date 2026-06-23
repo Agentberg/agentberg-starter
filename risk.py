@@ -4,6 +4,8 @@ risk.py — Risk check functions.
 All tunable parameters live in config.py.
 This module is pure logic — checks return (allowed: bool, reason: str).
 """
+from __future__ import annotations
+
 import config as cfg
 
 

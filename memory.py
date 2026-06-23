@@ -6,6 +6,8 @@ sector snapshot lives here. Strategy logic (agent.py) never touches SQL directly
 
 Database: agent.db (created automatically on first run)
 """
+from __future__ import annotations
+
 import json
 import sqlite3
 import datetime

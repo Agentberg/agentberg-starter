@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentberg"
-version = "2.7.3"
+version = "2.7.7"
 description = "Install, scaffold, run, and chat with your Agentberg trading agent."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 license = "MIT"
 # Stdlib-only on purpose: the CLI must install cleanly via pipx/uv with no build deps.
 dependencies = []

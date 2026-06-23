@@ -1,7 +1,43 @@
 {
-  "version": "2.7.3",
-  "released": "2026-06-22",
+  "version": "2.7.7",
+  "released": "2026-06-23",
   "changelog": [
+    {
+      "version": "2.7.7",
+      "category": "0",
+      "date": "2026-06-23",
+      "files": ["agent.py", "agentberg.py", "alpaca.py", "knowledge.py", "llm.py", "memory.py", "risk.py", "scheduler.py", "structures.py", "llm_providers/_resolve.py", "llm_providers/deepseek.py", "scripts/release_notes.py"],
+      "fixed": [
+        "Added 'from __future__ import annotations' to all kit files that use X | Y union type hints. Agents running Python 3.9 (e.g. macOS default) crashed at startup with a TypeError because the | union syntax requires Python 3.10+. All kit files now work on Python 3.9+. Minimum Python requirement lowered from 3.10 to 3.9 in pyproject.toml."
+      ]
+    },
+    {
+      "version": "2.7.6",
+      "category": "0",
+      "date": "2026-06-23",
+      "files": ["agent.py"],
+      "fixed": [
+        "Equity trade_type now correctly reflects direction: bearish candidates record short_stock on the network (was always long_stock regardless of direction). Caused entry_thesis/trade_type mismatches — network showed long_stock for short-side trades."
+      ]
+    },
+    {
+      "version": "2.7.5",
+      "category": "0",
+      "date": "2026-06-23",
+      "files": ["agentberg.py"],
+      "fixed": [
+        "open_trade() and publish_trade_result() now send agent_id in payload (was published_by) — matches server TradeCreate model and enables ownership verification. Agents on 2.7.4 or earlier were receiving 422 errors on all trade-open calls."
+      ]
+    },
+    {
+      "version": "2.7.4",
+      "category": "A",
+      "date": "2026-06-22",
+      "files": ["agentberg_cli/cli.py"],
+      "added": [
+        "upgrade command now syncs pyproject.toml version to match the adopted kit version after a successful upgrade. Agents who cloned the repo (vs agentberg init) previously retained their original clone's version number in pyproject.toml even after upgrading."
+      ]
+    },
     {
       "version": "2.7.3",
       "category": "0",

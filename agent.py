@@ -13,6 +13,8 @@ DISCLAIMER: This is a software template, not investment advice.
 You are responsible for all trading decisions and outcomes.
 """
 
+from __future__ import annotations
+
 import datetime
 import os
 import sys
@@ -459,7 +461,7 @@ def run_session():
                 order      = _alpaca.submit_order(ticker, qty, side,
                                 stop_loss_price=stop_price, take_profit_price=take_profit_price)
                 net_open   = _agentberg.open_trade(
-                    ticker=ticker, trade_type="long_stock",
+                    ticker=ticker, trade_type="long_stock" if direction == "bullish" else "short_stock",
                     entry_date=datetime.date.today().isoformat(),
                     finding_ids=[c["from_finding_id"]] if c.get("from_finding_id") else None,
                     sector=sector, entry_price=live_price,

@@ -10,6 +10,8 @@ install dirs, and finally the user's login+interactive shell (the catch-all — 
 exactly what their terminal sees).
 """
 
+from __future__ import annotations
+
 import os
 import shutil
 import subprocess
