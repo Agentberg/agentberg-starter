@@ -13,7 +13,7 @@
     },
     {
       "version": "2.7.7",
-      "category": "0",
+      "category": "A",
       "date": "2026-06-23",
       "files": ["agent.py", "agentberg.py", "alpaca.py", "knowledge.py", "llm.py", "memory.py", "risk.py", "scheduler.py", "structures.py", "llm_providers/_resolve.py", "llm_providers/deepseek.py", "scripts/release_notes.py"],
       "fixed": [
