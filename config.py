@@ -66,6 +66,13 @@ OPTION_STOP_LOSS_PCT:   float = 0.50   # exit option if down 50% of premium paid
 EQUITY_TAKE_PROFIT_PCT: float = 0.02   # exit equity at 2% gain — triggers frequently
 TAKE_PROFIT_PCT:        float = 1.00   # options: exit at 100% gain on premium (2× paid)
 
+# ── Trailing stop (equity only) ────────────────────────────────────────────────
+# Once a position gains TRIGGER_PCT, the stop trails DISTANCE_PCT below the
+# highest price seen since entry. Locks in gains on reversals without capping upside.
+TRAILING_STOP_ENABLED:      bool  = True
+TRAILING_STOP_TRIGGER_PCT:  float = 0.01   # activate once position is up 1%
+TRAILING_STOP_DISTANCE_PCT: float = 0.01   # trail 1% below the high water mark
+
 # ── Options DTE window ─────────────────────────────────────────────────────────
 MIN_DTE: int = 21    # < 21 DTE: gamma risk spikes
 MAX_DTE: int = 45    # > 45 DTE: too much premium at risk for too long

@@ -787,6 +787,33 @@ def check_positions():
             continue
         unrealised_pnl_pct = float(pos.get("unrealized_plpc", 0))
         asset_class = pos.get("asset_class", "")
+
+        # ── Trailing stop (equity only) ────────────────────────────────────────
+        # Tracks the highest price seen since entry. Once the position is up
+        # TRAILING_STOP_TRIGGER_PCT, the stop trails TRAILING_STOP_DISTANCE_PCT
+        # below that high — locking in gains on reversals without capping upside.
+        if cfg.TRAILING_STOP_ENABLED and asset_class == "us_equity":
+            current_price = float(pos.get("current_price", 0))
+            trade = next((t for t in open_trades
+                          if t.get("long_symbol") == symbol or t["symbol"] == symbol), None)
+            if trade and current_price > 0:
+                hwm = float(trade.get("high_water_mark") or trade.get("entry_price") or current_price)
+                if current_price > hwm:
+                    hwm = current_price
+                    memory.update_high_water_mark(trade["id"], hwm)
+                if unrealised_pnl_pct >= cfg.TRAILING_STOP_TRIGGER_PCT:
+                    trail_stop = hwm * (1 - cfg.TRAILING_STOP_DISTANCE_PCT)
+                    if current_price <= trail_stop:
+                        print(f"[monitor] TRAILING STOP {symbol}: "
+                              f"${current_price:.2f} below trail ${trail_stop:.2f} "
+                              f"(HWM ${hwm:.2f}, up {unrealised_pnl_pct:.1%})")
+                        try:
+                            _alpaca.close_position(symbol)
+                            _record_close(symbol, "trailing_stop", unrealised_pnl_pct)
+                        except Exception as e:
+                            print(f"[monitor] Trailing stop close failed {symbol}: {e}")
+                        continue
+
         stop_threshold   = -cfg.EQUITY_STOP_LOSS_PCT if asset_class == "us_equity" else -cfg.OPTION_STOP_LOSS_PCT
         profit_threshold = cfg.EQUITY_TAKE_PROFIT_PCT if asset_class == "us_equity" else cfg.TAKE_PROFIT_PCT
 

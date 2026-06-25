@@ -1,7 +1,18 @@
 {
-  "version": "2.8.1",
+  "version": "2.8.2",
   "released": "2026-06-24",
   "changelog": [
+    {
+      "version": "2.8.2",
+      "category": "B",
+      "date": "2026-06-24",
+      "files": ["agent.py", "memory.py", "config.py"],
+      "added": [
+        "agent.py: trailing stop logic in check_positions() — tracks high water mark per equity position each monitor cycle; once position is up TRAILING_STOP_TRIGGER_PCT (default 1%), stop trails TRAILING_STOP_DISTANCE_PCT (default 1%) below HWM; fires with exit_reason='trailing_stop'; only applies to us_equity, not options or spreads.",
+        "memory.py: high_water_mark column added to trades table via migration (NULL-safe, backward compatible). update_high_water_mark(trade_id, price) writes the new peak price.",
+        "config.py: TRAILING_STOP_ENABLED (default True), TRAILING_STOP_TRIGGER_PCT (default 0.01), TRAILING_STOP_DISTANCE_PCT (default 0.01) — all tunable per agent."
+      ]
+    },
     {
       "version": "2.8.1",
       "category": "B",

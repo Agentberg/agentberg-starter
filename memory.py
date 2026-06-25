@@ -101,7 +101,9 @@ def init_db():
                          # Agentberg, so every trade publishes exactly once (see agent.py).
                          ("published_at", "TEXT"),
                          # network trade id — stored at open, used to call close_trade() for auto-votes.
-                         ("network_trade_id", "TEXT")]:
+                         ("network_trade_id", "TEXT"),
+                         # trailing stop — highest price seen since entry; updated in monitor
+                         ("high_water_mark", "REAL")]:
             try:
                 conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
             except sqlite3.OperationalError:
@@ -382,6 +384,12 @@ def void_trade(trade_id: int) -> None:
             "UPDATE trades SET status='void', closed_at=?, exit_reason='entry_unfilled' WHERE id=?",
             (now, trade_id),
         )
+
+
+def update_high_water_mark(trade_id: int, price: float) -> None:
+    """Record the highest price seen since entry. Called by the position monitor each cycle."""
+    with _conn() as conn:
+        conn.execute("UPDATE trades SET high_water_mark=? WHERE id=?", (price, trade_id))
 
 
 def get_open_trades() -> list[dict]:
