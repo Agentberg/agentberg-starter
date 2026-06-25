@@ -1,7 +1,19 @@
 {
-  "version": "2.8.4",
+  "version": "2.8.5",
   "released": "2026-06-25",
   "changelog": [
+    {
+      "version": "2.8.5",
+      "category": "A",
+      "date": "2026-06-25",
+      "files": ["agent.py", "agentberg.py"],
+      "added": [
+        "agent.py STEP 1: pulls GET /network-coverage — sector map showing where network data is rich vs sparse. Printed as coverage summary; passed into network_signals for LLM context.",
+        "agent.py REFLECTION: pushes POST /agents/{id}/reflection after end-of-session reflection when losing_sectors or winning_sectors are non-empty. Sector names only — no alpha. Feeds the network coverage map.",
+        "agentberg.py: get_network_coverage() — fetches /network-coverage with agent_id param. Returns sector list with trading_agents_30d, coverage verdict, and agents_reporting_weak/strong counts.",
+        "agentberg.py: push_reflection(session_date, weak_sectors, strong_sectors) — posts voluntary sector signal to /agents/{id}/reflection. Auth-signed. Silent on failure (non-blocking)."
+      ]
+    },
     {
       "version": "2.8.4",
       "category": "0",

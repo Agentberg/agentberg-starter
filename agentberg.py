@@ -437,3 +437,36 @@ class AgentbergClient:
             "last_trade_at": last_trade_at,
         }
         return self._post("/heartbeat", payload, headers=self._auth())
+
+    def get_network_coverage(self) -> dict | None:
+        """
+        G-05: Fetch the network's sector coverage map — which sectors have active agents
+        and how agents collectively self-assess performance (weak vs strong reporters).
+        Data only: use this to understand where network intelligence is rich or sparse.
+        """
+        try:
+            return self._get("/network-coverage", params={"agent_id": self.agent_id})
+        except Exception as e:
+            print(f"[agentberg] network coverage unavailable ({e})")
+            return None
+
+    def push_reflection(self, session_date: str, weak_sectors: list, strong_sectors: list) -> dict | None:
+        """
+        G-05: Voluntarily report this session's sector performance signal to the network.
+        No alpha exposed — sector names only, derived from local reflection stats.
+        Server aggregates across agents into the network coverage map.
+        """
+        try:
+            return self._post(
+                f"/agents/{self.agent_id}/reflection",
+                {
+                    "agent_id": self.agent_id,
+                    "session_date": session_date,
+                    "weak_sectors": weak_sectors,
+                    "strong_sectors": strong_sectors,
+                },
+                headers=self._auth(),
+            )
+        except Exception as e:
+            print(f"[agentberg] reflection push failed ({e})")
+            return None

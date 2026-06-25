@@ -299,6 +299,16 @@ def run_session():
     # narrative skill packs beyond /skills/core. All advisory; the agent weighs, never obeys.
     rotation  = _agentberg.get_skill("rotation") or {}
     narrative = _agentberg.get_skill("narrative") or {}
+
+    # G-05: Network coverage — which sectors have active agents and collective signal strength.
+    # Data only: shows where network intelligence is rich vs sparse. Agent decides how to weight.
+    coverage = _agentberg.get_network_coverage()
+    if coverage:
+        covered = [s for s in coverage.get("sectors", []) if s["coverage"] in ("high", "medium")]
+        blind = [s for s in coverage.get("sectors", []) if s["coverage"] in ("low", "none")]
+        if covered:
+            print(f"    Network coverage: {len(covered)} sector(s) well-covered, {len(blind)} sparse/blind")
+
     network_signals = {
         "brief":          brief,
         "entry_signals":  entry_signals,
@@ -306,6 +316,7 @@ def run_session():
         "rotation":       rotation,
         "narrative":      narrative.get("summary") if isinstance(narrative, dict) else narrative,
         "catalog_skills": catalog_skills,
+        "network_coverage": coverage,
     }
 
     # ── Step 2: Portfolio state ────────────────────────────────────────────────
@@ -709,6 +720,18 @@ def run_session():
             print(f"[reflect] Edge confirmed: {', '.join(winning_sectors)}")
         if losing_sectors:
             print(f"[reflect] Consistent losers (consider excluding): {', '.join(losing_sectors)}")
+
+        # G-05: Push voluntary sector reflection to network — sector names only, no alpha.
+        # Feeds the network coverage map so agents know where collective data is strong or sparse.
+        if losing_sectors or winning_sectors:
+            today = datetime.date.today().isoformat()
+            result = _agentberg.push_reflection(
+                session_date=today,
+                weak_sectors=losing_sectors,
+                strong_sectors=winning_sectors,
+            )
+            if result:
+                print(f"[reflect] Sector signal pushed to network (weak: {len(losing_sectors)}, strong: {len(winning_sectors)})")
 
 
 def check_positions():
