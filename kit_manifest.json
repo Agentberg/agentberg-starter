@@ -1,7 +1,19 @@
 {
-  "version": "2.8.0",
+  "version": "2.8.1",
   "released": "2026-06-24",
   "changelog": [
+    {
+      "version": "2.8.1",
+      "category": "B",
+      "date": "2026-06-24",
+      "files": ["agent.py", "llm.py", "config.py"],
+      "changed": [
+        "agent.py: replaced hardcoded _HIGH_BETA_TICKERS set with live beta calculation. SPY bars fetched once per session; each candidate's realized beta vs SPY computed from 40-day price bars already in memory. Beta stored on candidate dict.",
+        "agent.py: hard filter now drops bullish candidates where beta > cfg.HIGH_BETA_THRESHOLD (default 1.8) instead of matching against a fixed ticker list. Works for any ticker, any agent universe.",
+        "llm.py: removed _HIGH_BETA_TICKERS hardcoded set. _regime_rules_section() now references the threshold value from config rather than a static ticker list.",
+        "config.py: added HIGH_BETA_THRESHOLD = 1.8 — tunable per agent."
+      ]
+    },
     {
       "version": "2.8.0",
       "category": "B",

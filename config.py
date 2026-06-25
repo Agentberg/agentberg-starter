@@ -74,6 +74,11 @@ MAX_DTE: int = 45    # > 45 DTE: too much premium at risk for too long
 MIN_DELTA: float = 0.20    # below this: lottery ticket (lowered for more leverage/excitement)
 MAX_DELTA: float = 0.50    # above this: just trade the stock
 
+# ── Beta filter ───────────────────────────────────────────────────────────────
+# Candidates with realized beta > this are filtered out as bullish entries in
+# range_bound regimes. Computed live from 40-day price bars vs SPY.
+HIGH_BETA_THRESHOLD: float = 1.8
+
 # ── IV Rank ────────────────────────────────────────────────────────────────────
 MAX_IV_RANK_TO_BUY: float = 30.0   # don't buy when IV is expensive
 

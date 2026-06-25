@@ -38,26 +38,18 @@ _ADAPTERS = {
 # Order tried when LLM_PROVIDER=auto: local CLIs (no key) first, API last.
 _AUTO_ORDER = ["claude", "gemini", "openai", "deepseek"]
 
-# High-beta tickers that tend to break down badly in range-bound regimes.
-# Used both as a hard pre-LLM filter in agent.py and as a prompt rule here.
-_HIGH_BETA_TICKERS: set[str] = {
-    "NVDA", "AMD", "TSLA", "META", "MSTR", "COIN", "PLTR", "RBLX",
-    "ARKK", "TQQQ", "UPRO", "SOXL",
-}
-
-
 def _regime_rules_section(regime: str) -> str:
     """Inject hard, non-advisory regime rules into the ranking prompt.
     These are MANDATORY — not suggestions — and mirror the pre-LLM hard filter
     in agent.py so the LLM's reasoning stays consistent with what was pre-filtered."""
     rules = []
     if regime == "range_bound":
+        threshold = cfg.HIGH_BETA_THRESHOLD
         rules.append(
-            f"Do NOT go LONG on high-beta momentum names "
-            f"({', '.join(sorted(_HIGH_BETA_TICKERS))}). "
-            "These break down in range-bound conditions — they revert to mean "
-            "and frequently hit stop-losses before reversing. If any appear as "
-            "bullish candidates, SKIP them."
+            f"Do NOT go LONG on high-beta names (realized beta vs SPY > {threshold}). "
+            "High-beta names break down in range-bound conditions — they revert to mean "
+            "and frequently hit stop-losses before reversing. Any bullish candidate "
+            "that was pre-filtered for high beta will not appear; if one slips through, SKIP it."
         )
         rules.append(
             "In range_bound: favour SHORTS on overbought names, or LONG entries "

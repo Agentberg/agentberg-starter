@@ -29,7 +29,26 @@ import risk
 import structures
 from agentberg import AgentbergClient
 from alpaca import AlpacaClient
-from llm import _HIGH_BETA_TICKERS, rank_candidates
+from llm import rank_candidates
+
+def _compute_beta(stock_bars: list, spy_bars: list) -> float:
+    """Compute realized beta vs SPY from daily close bars. Returns 0.0 on insufficient data."""
+    stock_closes = {b["t"][:10]: float(b["c"]) for b in stock_bars}
+    spy_closes   = {b["t"][:10]: float(b["c"]) for b in spy_bars}
+    dates = sorted(set(stock_closes) & set(spy_closes))
+    if len(dates) < 10:
+        return 0.0
+    stock_rets = [(stock_closes[dates[i]] - stock_closes[dates[i-1]]) / stock_closes[dates[i-1]]
+                  for i in range(1, len(dates))]
+    spy_rets   = [(spy_closes[dates[i]]   - spy_closes[dates[i-1]])   / spy_closes[dates[i-1]]
+                  for i in range(1, len(dates))]
+    n = len(stock_rets)
+    spy_mean   = sum(spy_rets) / n
+    stock_mean = sum(stock_rets) / n
+    cov     = sum((stock_rets[i] - stock_mean) * (spy_rets[i] - spy_mean) for i in range(n)) / (n - 1)
+    var_spy = sum((spy_rets[i] - spy_mean) ** 2 for i in range(n)) / (n - 1)
+    return cov / var_spy if var_spy else 0.0
+
 
 # Clients — constructed once at import time, reused across calls
 _alpaca    = AlpacaClient(cfg.ALPACA_API_KEY, cfg.ALPACA_SECRET_KEY, cfg.ALPACA_BASE_URL)
@@ -302,6 +321,8 @@ def run_session():
     print(f"[3] Scanning {sum(len(v) for v in cfg.WATCHLIST.values())} tickers ({mode} mode)...")
     candidates = []
 
+    spy_bars = _alpaca.get_bars("SPY", timeframe="1Day", limit=40)
+
     for sector, tickers in cfg.WATCHLIST.items():
         if sector in blocked_sectors:
             print(f"    SKIP {sector}: blocked by your own rules")
@@ -340,6 +361,7 @@ def run_session():
                 "direction":  direction,
                 "price":      latest_close,
                 "day_change": day_change,
+                "beta":       _compute_beta(bars, spy_bars),
             })
             print(f"    CANDIDATE {ticker} [{sector}]: {direction} {day_change:+.2%} @ ${latest_close:.2f}")
 
@@ -370,6 +392,7 @@ def run_session():
             "price":           fk_close,
             "day_change":      fk_chg,
             "from_finding_id": fk_finding_id,
+            "beta":            _compute_beta(fk_bars, spy_bars),
         })
         print(f"    CANDIDATE {fk_ticker} [Network finding]: {fk_dir} {fk_chg:+.2%} @ ${fk_close:.2f}")
         candidate_tickers.add(fk_ticker)
@@ -398,19 +421,20 @@ def run_session():
         print(f"    Enriched {enriched}/{len(candidates)} candidates with network ticker intel")
 
     # ── Step 3a.5: Pre-LLM hard filter — high-beta bullish in range_bound ────────
-    # Drop dangerous candidates before the LLM sees them. High-beta names tend to
-    # stop out in range-bound conditions regardless of how the LLM ranks them.
-    # Mirrors the hard rules injected into the LLM prompt via _regime_rules_section().
+    # Drop candidates whose realized beta vs SPY exceeds the threshold before the LLM
+    # sees them. Beta is computed from the same 40-day bars already fetched — no extra
+    # API calls. Threshold lives in config.py so operators can tune it.
     if regime == "range_bound":
         _before = len(candidates)
         candidates = [
             c for c in candidates
             if not (c.get("direction") == "bullish"
-                    and c.get("ticker") in _HIGH_BETA_TICKERS)
+                    and c.get("beta", 0) > cfg.HIGH_BETA_THRESHOLD)
         ]
         _dropped = _before - len(candidates)
         if _dropped:
-            print(f"    [hard-filter] dropped {_dropped} high-beta bullish candidate(s) in range_bound regime")
+            print(f"    [hard-filter] dropped {_dropped} high-beta bullish candidate(s) "
+                  f"(beta > {cfg.HIGH_BETA_THRESHOLD}) in range_bound regime")
 
     print(f"    {len(candidates)} candidate(s) before LLM filter")
 

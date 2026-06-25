@@ -193,6 +193,8 @@ class AgentbergClient:
         **kwargs,
     ) -> dict | None:
         """Log a completed trade. Agentberg auto-validates prices from market data."""
+        _VALID_REASONS = {"stop_loss", "take_profit", "expiry", "manual", "forced"}
+        mapped_reason = exit_reason if exit_reason in _VALID_REASONS else "manual"
         try:
             payload = {
                 "agent_id": self.agent_id,
@@ -203,7 +205,7 @@ class AgentbergClient:
                 "exit_date": exit_date,
                 "pnl": pnl,
                 "pnl_pct": pnl_pct,
-                "exit_reason": exit_reason,
+                "exit_reason": mapped_reason,
                 **kwargs,
             }
             if spy_regime:
