@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import time
 import logging
 import datetime
@@ -155,6 +157,49 @@ def _write_heartbeat():
         pass
 
 
+def _send_network_heartbeat():
+    """Send heartbeat to Agentberg — fallback for agents with a customized agent.py."""
+    try:
+        import cfg
+        from agentberg import AgentbergClient
+        kit_version = None
+        manifest = Path(__file__).parent / "kit_manifest.json"
+        if manifest.exists():
+            kit_version = json.loads(manifest.read_text()).get("version")
+        universe_size = sum(len(v) for v in cfg.WATCHLIST.values())
+        AgentbergClient(cfg.AGENTBERG_URL, cfg.AGENT_ID).send_heartbeat(
+            kit_version=kit_version, universe_size=universe_size
+        )
+        log.debug("[heartbeat] sent")
+    except Exception as e:
+        log.debug(f"[heartbeat] {e}")
+
+
+def _auto_upgrade_check(last_ran: dict) -> bool:
+    """Run `agentberg upgrade --auto` once per day. Returns True if upgrade applied (restart needed)."""
+    today = _now_et().date().isoformat()
+    if last_ran.get("upgrade_check") == today:
+        return False
+    last_ran["upgrade_check"] = today
+    _save_state(last_ran)
+    try:
+        result = subprocess.run(
+            ["agentberg", "upgrade", "--auto"],
+            capture_output=True, text=True, timeout=120,
+        )
+        output = (result.stdout + result.stderr).strip()
+        if "Applied" in output and "file(s)" in output:
+            log.info(f"[upgrade] Upgrade applied — restarting to load new code\n{output[:500]}")
+            return True
+        if output:
+            log.debug(f"[upgrade] {output[:200]}")
+    except FileNotFoundError:
+        log.debug("[upgrade] agentberg CLI not on PATH — skipping auto-check")
+    except Exception as e:
+        log.warning(f"[upgrade] check failed: {e}")
+    return False
+
+
 def _run_missed_sessions(last_ran: dict):
     """On startup, fire any sessions that passed while the scheduler was down."""
     now = _now_et()
@@ -205,6 +250,8 @@ def _main_loop():
     last_ran: dict[str, str] = _load_state()
     log.info("Scheduler started — sessions at 09:35 and 15:50 ET")
     _run_missed_sessions(last_ran)
+    if _auto_upgrade_check(last_ran):
+        sys.exit(0)  # watchdog (agentberg start) restarts with upgraded code
 
     while True:
         try:
@@ -237,6 +284,8 @@ def _main_loop():
                     except Exception as e:
                         log.error(f"[{label}] Session failed: {e}")
                         _mark_ran(label, last_ran)   # don't retry — wait for next window
+                    finally:
+                        _send_network_heartbeat()
 
             # ── Position monitor ───────────────────────────────────────────────────
             if _is_market_hours():

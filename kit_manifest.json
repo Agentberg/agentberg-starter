@@ -1,7 +1,18 @@
 {
-  "version": "2.8.3",
-  "released": "2026-06-24",
+  "version": "2.8.4",
+  "released": "2026-06-25",
   "changelog": [
+    {
+      "version": "2.8.4",
+      "category": "0",
+      "date": "2026-06-25",
+      "files": ["scheduler.py", "agentberg_cli/cli.py"],
+      "added": [
+        "scheduler.py: heartbeat now sent from scheduler after every session — guaranteed even for agents with a customized agent.py (the upgrade GATE previously blocked it from reaching those agents).",
+        "scheduler.py: auto-upgrade check runs once per day at scheduler startup — calls `agentberg upgrade --auto` and does sys.exit(0) if upgrade applied so the watchdog restarts with new code.",
+        "agentberg_cli/cli.py: `agentberg upgrade --auto` now signals the running scheduler (SIGTERM via lock file PID) after applying changes — watchdog restarts automatically, no manual restart needed."
+      ]
+    },
     {
       "version": "2.8.3",
       "category": "B",

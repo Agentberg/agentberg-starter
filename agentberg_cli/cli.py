@@ -594,6 +594,17 @@ def cmd_upgrade(args) -> None:
         print(f"\n  Verify: `agentberg run` once. With the network off, behavior should be")
         print(f"  unchanged (Category 0 is advisory). Snapshot kept at {backup}")
 
+        # ── Signal running scheduler to restart with new code ────────────────────
+        if applied:
+            lock = folder / "logs" / "scheduler.lock"
+            if lock.exists():
+                try:
+                    pid = int(lock.read_text().strip())
+                    os.kill(pid, 15)  # SIGTERM — graceful stop; watchdog (agentberg start) restarts
+                    print(f"\n  Scheduler (PID {pid}) signaled to restart — new code will load in ~5s.")
+                except Exception:
+                    print(f"\n  Upgrade applied. Restart your scheduler to load the new code.")
+
 
 def cmd_update(args) -> None:
     # `update` is the propose-only view; `upgrade --auto` applies Category 0.
