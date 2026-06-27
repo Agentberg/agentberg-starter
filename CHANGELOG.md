@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.9.1 — 2026-06-27
+
+*Files:* upgrade.py
+
+- upgrade.py now auto-restarts the scheduler after applying new files. Previously printed 'Restart your scheduler to load the new code.' and stopped. Now reads logs/scheduler.lock for the running PID, sends SIGTERM (Mac/Linux) or TerminateProcess (Windows), then relaunches scheduler.py detached in the background. Logs to logs/scheduler.log. If scheduler was not running, prints a start instruction instead.
+
 ## v2.9.0 — 2026-06-27
 
 *Files:* upgrade.py

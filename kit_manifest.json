@@ -1,7 +1,16 @@
 {
-  "version": "2.9.0",
+  "version": "2.9.1",
   "released": "2026-06-27",
   "changelog": [
+    {
+      "version": "2.9.1",
+      "category": "A",
+      "date": "2026-06-27",
+      "files": ["upgrade.py"],
+      "added": [
+        "upgrade.py now auto-restarts the scheduler after applying new files. Previously printed 'Restart your scheduler to load the new code.' and stopped. Now reads logs/scheduler.lock for the running PID, sends SIGTERM (Mac/Linux) or TerminateProcess (Windows), then relaunches scheduler.py detached in the background. Logs to logs/scheduler.log. If scheduler was not running, prints a start instruction instead."
+      ]
+    },
     {
       "version": "2.9.0",
       "category": "A",

@@ -96,6 +96,57 @@ def _pending(manifest: dict, adopted_ver: str) -> list:
     return sorted(entries, key=lambda e: _vtuple(e.get("version", "0")))
 
 
+def _restart_scheduler(folder: Path) -> None:
+    import signal
+    import subprocess
+
+    lock = folder / "logs" / "scheduler.lock"
+    if not lock.exists():
+        print("  Scheduler not running — start it when ready: python3 scheduler.py")
+        return
+
+    try:
+        pid = int(lock.read_text().strip())
+        if sys.platform == "win32":
+            import ctypes
+            ctypes.windll.kernel32.TerminateProcess(
+                ctypes.windll.kernel32.OpenProcess(1, False, pid), 0
+            )
+        else:
+            os.kill(pid, signal.SIGTERM)
+        print(f"  Stopped scheduler (PID {pid})")
+        time.sleep(1)
+    except (ProcessLookupError, PermissionError, ValueError, OSError):
+        print("  Scheduler process already stopped")
+
+    log_path = folder / "logs" / "scheduler.log"
+    log_path.parent.mkdir(exist_ok=True)
+    log_fh = open(str(log_path), "a")
+
+    if sys.platform == "win32":
+        proc = subprocess.Popen(
+            [sys.executable, "scheduler.py"],
+            cwd=str(folder),
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+    else:
+        proc = subprocess.Popen(
+            [sys.executable, "scheduler.py"],
+            cwd=str(folder),
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+    time.sleep(1)
+    if proc.poll() is None:
+        print(f"  Scheduler restarted (PID {proc.pid}) → logs/scheduler.log")
+    else:
+        print("  WARNING: Scheduler failed to restart — check logs/scheduler.log")
+
+
 def _fetch() -> bytes:
     print("  Downloading latest kit from GitHub…")
     req = urllib.request.Request(KIT_URL, headers={"User-Agent": "agentberg-upgrade"})
@@ -280,7 +331,10 @@ def main() -> None:
 
         print(f"\n  Done. Now at v{latest}.")
         print(f"  Backup saved at: {backup}")
-        print(f"\n  Restart your scheduler to load the new code.")
+
+        if applied:
+            print()
+            _restart_scheduler(folder)
 
         env = _load_env(folder)
         base_url = env.get("AGENTBERG_URL", "https://agentberg.ai").rstrip("/")
