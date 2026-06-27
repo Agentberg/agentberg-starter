@@ -114,7 +114,16 @@ def maybe_upload(client, agent_id: str, token: str | None = None) -> dict:
 # This kit's version. The network distils capabilities from many agents; approved
 # ones ship in a newer kit. We only ever NOTIFY — adopting is deliberate (see UPGRADING.md)
 # and operator-reviewed. A running, money-touching agent is never silently rewritten.
-KIT_VERSION = "2.7.9"
+def _read_kit_version() -> str:
+    try:
+        import json as _json
+        _p = __file__.replace("knowledge.py", "kit_manifest.json")
+        with open(_p) as _f:
+            return _json.load(_f).get("version", "0.0.0")
+    except Exception:
+        return "0.0.0"
+
+KIT_VERSION = _read_kit_version()
 
 # Category 0 and A changes are mandatory — they affect network participation
 # (telemetry, publishing, voting) or safe plumbing and must be adopted for the

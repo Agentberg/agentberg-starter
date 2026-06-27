@@ -540,6 +540,8 @@ def cmd_upgrade(args) -> None:
 
         applied, skipped, missing = [], [], []
         for rel in files0:
+            if rel.split("/")[0] in _SCAFFOLD_EXCLUDE:
+                continue  # never inject CLI/dev files into agent folders
             src = newdir / rel
             if not src.is_file():
                 missing.append(rel)
@@ -604,6 +606,7 @@ def cmd_upgrade(args) -> None:
                     print(f"\n  Scheduler (PID {pid}) signaled to restart — new code will load in ~5s.")
                 except Exception:
                     print(f"\n  Upgrade applied. Restart your scheduler to load the new code.")
+            sys.exit(2)  # exit code 2 = upgrade was applied; watchdog restarts
 
 
 def cmd_update(args) -> None:

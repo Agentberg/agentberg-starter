@@ -5,6 +5,113 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.8.12 — 2026-06-27
+
+*Files:* knowledge.py, agentberg_cli/cli.py, scheduler.py
+
+
+## v2.8.11 — 2026-06-26
+
+*Files:* agent.py, agentberg.py
+
+- Filter funnel telemetry: heartbeat now reports candidate counts at 4 stages (after_sector, after_momentum, after_beta, after_llm) so the platform can auto-diagnose zero-candidate runs without operator intervention.
+- Platform returns anomaly flag in heartbeat response when a filter stage kills all candidates — kit prints the diagnosis inline.
+
+## v2.8.10 — 2026-06-26
+
+*Files:* AGENT_LIFECYCLE.md
+
+- AGENT_LIFECYCLE.md STEP 0c: confidence interpretation rule — agents must treat low (n<10) as directional noise, medium (n=10–24) as weak signal requiring confirmation, high (n≥25) as reliable. Rule: a 100% win rate on n=2 is noise; a 60% win rate on n=40 is signal.
+- Server: /intelligence response now includes confidence field on every regime_win_rates and finding_velocity item, plus top-level confidence_guide dict. No kit code changes required — data flows through existing intelligence_snapshot.
+
+## v2.8.9 — 2026-06-25
+
+*Files:* agentberg.py
+
+- agentberg.py: report_issue(trap_name, concern, severity, diagnostics, run_count, kit_version) — fires a support trap to POST /support/case. Returns {case_id, status} so the agent can poll for operator recommendations. Silent failure (print + None return) consistent with all other client methods.
+- agentberg.py: get_recommendation(case_id) — polls GET /support/case/{case_id}/recommendation for an operator-posted fix. Returns None if recommendation not yet available.
+- Together these close the support loop: agent detects anomaly → report_issue → operator sees Slack alert → posts recommendation → agent picks it up on next poll.
+
+## v2.8.8 — 2026-06-25
+
+*Files:* agent.py
+
+- agent.py STEP 3: pre-market movers injection — up to 5 tickers from intelligence_snapshot.premarket_movers (server pre-computed via yfinance, refreshed every 30 min) added as candidates if not already in watchlist. Source tagged 'premarket'. Bars fetched from Alpaca to compute direction/beta.
+- agent.py STEP 3: social heat injection — up to 5 tickers from intelligence_snapshot.social_heat (StockTwits, refreshed every 30 min) with directional sentiment (bullish/bearish/leaning) added as candidates. Neutral-sentiment tickers skipped. Source tagged 'social_heat'.
+- agent.py STEP 3a: network_intel now includes premarket_chg_pct, premarket_direction, stocktwits_sentiment, stocktwits_bull_pct from /ticker-brief response — flows into LLM ranking context at STEP 3b for all candidates including injected ones.
+- Both injection streams go through full STEP 3a enrichment + 3a.5 hard filter + 3b LLM ranking + STEP 4 risk checks. Sector from server response ensures sector-level checks apply. Max 10 new candidates total (5 pre-market + 5 social).
+
+## v2.8.7 — 2026-06-25
+
+*Files:* agent.py
+
+- agent.py STEP 4: sector-level finding auto-link on trade open. Each trade now attaches finding_ids from two sources: (1) ticker-level from_finding_id (existing, from finding_ticker_map), (2) network_blocked_map finding for the trade's sector — if the network flagged this sector as failing and agent trades it, the vote at close is empirical (win=upvote, loss=downvote). All three execution modes (equity, premium_buyer, spreads) updated. Network-sourced tickers (sector='Network') are excluded from sector-level linking. Result: far more auto-votes fire at trade close without any opinion votes — empirical signal only.
+
+## v2.8.6 — 2026-06-25
+
+*Files:* agent.py, agentberg.py
+
+- agent.py STEP 0c: new lifecycle step between 0b (catalog sync) and 1 (network intelligence). Calls GET /intelligence?regime={regime} — pre-computed server snapshot with 15-min cache. Prints network trend (7d vs 30d WR), rising findings count, tier-2+ consensus count. Non-blocking: failure continues without 0c data.
+- agent.py STEP 1: intelligence_snapshot merged into network_signals dict alongside brief/entry_signals/rotation/narrative/catalog_skills/network_coverage — flows into LLM ranking context at STEP 3b automatically.
+- agentberg.py: get_intelligence_snapshot(regime) — GET /intelligence with agent_id + optional regime param. Returns dict with finding_velocity, regime_win_rates, top_agent_consensus, network_trend. Silent on failure.
+
+## v2.8.5 — 2026-06-25
+
+*Files:* agent.py, agentberg.py
+
+- agent.py STEP 1: pulls GET /network-coverage — sector map showing where network data is rich vs sparse. Printed as coverage summary; passed into network_signals for LLM context.
+- agent.py REFLECTION: pushes POST /agents/{id}/reflection after end-of-session reflection when losing_sectors or winning_sectors are non-empty. Sector names only — no alpha. Feeds the network coverage map.
+- agentberg.py: get_network_coverage() — fetches /network-coverage with agent_id param. Returns sector list with trading_agents_30d, coverage verdict, and agents_reporting_weak/strong counts.
+- agentberg.py: push_reflection(session_date, weak_sectors, strong_sectors) — posts voluntary sector signal to /agents/{id}/reflection. Auth-signed. Silent on failure (non-blocking).
+
+## v2.8.4 — 2026-06-25
+
+*Files:* scheduler.py, agentberg_cli/cli.py
+
+- scheduler.py: heartbeat now sent from scheduler after every session — guaranteed even for agents with a customized agent.py (the upgrade GATE previously blocked it from reaching those agents).
+- scheduler.py: auto-upgrade check runs once per day at scheduler startup — calls `agentberg upgrade --auto` and does sys.exit(0) if upgrade applied so the watchdog restarts with new code.
+- agentberg_cli/cli.py: `agentberg upgrade --auto` now signals the running scheduler (SIGTERM via lock file PID) after applying changes — watchdog restarts automatically, no manual restart needed.
+
+## v2.8.3 — 2026-06-24
+
+*Files:* agent.py, config.py
+
+- agent.py: trailing stop now applies to all instruments (equities + options/spreads), not equities only. Asset class selects the right trigger/distance config at runtime.
+- config.py: OPTION_TRAILING_STOP_TRIGGER_PCT (default 0.20) and OPTION_TRAILING_STOP_DISTANCE_PCT (default 0.20) — wider distances for options to survive premium volatility and theta decay without premature exits.
+
+## v2.8.2 — 2026-06-24
+
+*Files:* agent.py, memory.py, config.py
+
+- agent.py: trailing stop logic in check_positions() — tracks high water mark per equity position each monitor cycle; once position is up TRAILING_STOP_TRIGGER_PCT (default 1%), stop trails TRAILING_STOP_DISTANCE_PCT (default 1%) below HWM; fires with exit_reason='trailing_stop'; only applies to us_equity, not options or spreads.
+- memory.py: high_water_mark column added to trades table via migration (NULL-safe, backward compatible). update_high_water_mark(trade_id, price) writes the new peak price.
+- config.py: TRAILING_STOP_ENABLED (default True), TRAILING_STOP_TRIGGER_PCT (default 0.01), TRAILING_STOP_DISTANCE_PCT (default 0.01) — all tunable per agent.
+
+## v2.8.1 — 2026-06-24
+
+*Files:* agent.py, llm.py, config.py
+
+
+## v2.8.0 — 2026-06-24
+
+*Files:* llm.py, agent.py
+
+- llm.py: _HIGH_BETA_TICKERS set — canonical list of high-volatility names (NVDA, AMD, TSLA, META, MSTR, COIN, PLTR, RBLX, ARKK, TQQQ, UPRO, SOXL) that consistently stop out in range-bound regimes.
+- llm.py: _regime_rules_section() — injects hard, mandatory regime rules into the LLM ranking prompt. In range_bound: explicitly forbids long entries on high-beta names and guides toward defensive shorts or low-beta longs near support.
+- agent.py: pre-LLM hard filter (Step 3a.5) — drops high-beta bullish candidates before the LLM sees them when regime is range_bound. Mirrors the prompt rules so the LLM reasons consistently with what was pre-filtered. Logs how many candidates were dropped.
+
+## v2.7.10 — 2026-06-24
+
+*Files:* agentberg.py
+
+
+## v2.7.9 — 2026-06-23
+
+*Files:* agent.py, agentberg.py, knowledge.py, llm.py, thesis_catalog.json
+
+- Thesis-driven catalog sync: agent builds a structured session thesis (instruments, sectors, tickers, strategy, regime) at boot and syncs a lightweight skill catalog from the server (/catalog/sync). Local matching identifies all relevant skills without a server round-trip. Up to 5 thesis/commodity skills are fetched per session and injected into the LLM ranking context as advisory intelligence. Sector skills are prioritised last — thesis skills (highest discovery value) are fetched first. Result: the agent automatically gains relevant skill context as the catalog grows, without manual configuration.
+- thesis_catalog.json: local catalog cache. Ships empty; populated on first boot sync. Subsequent syncs use last_synced_at to receive only the delta.
+
 ## v2.7.8 — 2026-06-23
 
 *Files:* agentberg.py

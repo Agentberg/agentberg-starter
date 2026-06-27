@@ -41,7 +41,8 @@ def check_version_consistency(manifest: dict) -> list[str]:
         "kit_manifest.json": want,
         "pyproject.toml": _grep_version("pyproject.toml", r'(?m)^version\s*=\s*"([^"]+)"'),
         "agentberg_cli/__init__.py": _grep_version("agentberg_cli/__init__.py", r'__version__\s*=\s*"([^"]+)"'),
-        "knowledge.py (KIT_VERSION)": _grep_version("knowledge.py", r'KIT_VERSION\s*=\s*"([^"]+)"'),
+        # knowledge.py KIT_VERSION is read dynamically from kit_manifest.json at import time
+        # — no literal version string to check here.
     }
     return [f"{f}={v!r} != kit_manifest {want!r}" for f, v in found.items() if v != want]
 

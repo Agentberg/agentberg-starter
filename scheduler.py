@@ -188,7 +188,7 @@ def _auto_upgrade_check(last_ran: dict) -> bool:
             capture_output=True, text=True, timeout=120,
         )
         output = (result.stdout + result.stderr).strip()
-        if "Applied" in output and "file(s)" in output:
+        if result.returncode == 2:
             log.info(f"[upgrade] Upgrade applied — restarting to load new code\n{output[:500]}")
             return True
         if output:

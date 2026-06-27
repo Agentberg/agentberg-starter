@@ -18,3 +18,5 @@ dist/
 *.egg-info/
 .DS_Store
 .claude/
+tests/
+.agentberg_adopted.json

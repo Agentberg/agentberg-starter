@@ -1,7 +1,19 @@
 {
-  "version": "2.8.11",
-  "released": "2026-06-26",
+  "version": "2.8.12",
+  "released": "2026-06-27",
   "changelog": [
+    {
+      "version": "2.8.12",
+      "category": "A",
+      "date": "2026-06-27",
+      "files": ["knowledge.py", "agentberg_cli/cli.py", "scheduler.py"],
+      "fixed": [
+        "knowledge.py: KIT_VERSION now read from kit_manifest.json at import time — stale hardcode caused phantom update notifications every session.",
+        "agentberg_cli/cli.py: upgrade --auto no longer injects CLI/dev files (agentberg_cli/, tests/) into agent folders — _SCAFFOLD_EXCLUDE check added to the apply loop.",
+        "agentberg_cli/cli.py: upgrade --auto exits with code 2 when files were applied, replacing brittle stdout string matching.",
+        "scheduler.py: _auto_upgrade_check detects applied upgrades via returncode == 2 instead of string matching."
+      ]
+    },
     {
       "version": "2.8.11",
       "category": "A",
@@ -79,7 +91,7 @@
     },
     {
       "version": "2.8.4",
-      "category": "0",
+      "category": "A",
       "date": "2026-06-25",
       "files": ["scheduler.py", "agentberg_cli/cli.py"],
       "added": [
