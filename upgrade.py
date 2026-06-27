@@ -154,18 +154,6 @@ def _post_json(url: str, data: dict, headers: dict | None = None, timeout: int =
         return False
 
 
-def _send_heartbeat(env: dict, base_url: str, kit_version: str) -> bool:
-    agent_id = env.get("AGENT_ID")
-    if not agent_id:
-        return False
-    ok = _post_json(f"{base_url}/heartbeat", {"agent_id": agent_id, "kit_version": kit_version})
-    if ok:
-        print(f"  Heartbeat: sent (agent={agent_id}, kit=v{kit_version})")
-    else:
-        print(f"  Heartbeat: failed — will retry on next scheduler run")
-    return ok
-
-
 def _send_upgrade_report(
     env: dict,
     base_url: str,
@@ -205,8 +193,8 @@ def main() -> None:
     if not adopted:
         cur = _folder_version(folder)
         _save_adopted(folder, {"version": cur, "files": _file_hashes(folder)})
-        print(f"  Created baseline (v{cur}). Re-run to upgrade.")
-        return
+        adopted = _load_adopted(folder)
+        print(f"  Baseline created (v{cur}). Checking for updates…\n")
 
     try:
         data = _fetch()
@@ -296,14 +284,13 @@ def main() -> None:
 
         env = _load_env(folder)
         base_url = env.get("AGENTBERG_URL", "https://agentberg.ai").rstrip("/")
-        hb_ok = _send_heartbeat(env, base_url, latest)
         _send_upgrade_report(
             env, base_url,
             from_version=from_version,
             to_version=latest,
             files_applied=applied,
             files_protected=protected,
-            heartbeat_ok=hb_ok,
+            heartbeat_ok=True,
         )
         print()
 

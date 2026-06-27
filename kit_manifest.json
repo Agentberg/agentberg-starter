@@ -1,7 +1,25 @@
 {
-  "version": "2.8.19",
+  "version": "2.9.0",
   "released": "2026-06-27",
   "changelog": [
+    {
+      "version": "2.9.0",
+      "category": "A",
+      "date": "2026-06-27",
+      "files": ["upgrade.py"],
+      "added": [
+        "Fix: upgrade.py no longer sends a separate heartbeat after upgrading. The heartbeat was unsigned (stdlib-only, no crypto) and would 401 for any agent registered with a keypair. The server now records kit_version + last_seen_at from the upgrade telemetry itself — upgrade telemetry is the heartbeat."
+      ]
+    },
+    {
+      "version": "2.8.20",
+      "category": "A",
+      "date": "2026-06-27",
+      "files": ["upgrade.py"],
+      "added": [
+        "Fix: upgrade.py no longer requires two runs on a fresh machine. Previously, first run on a machine with no .agentberg_adopted.json would create the baseline and exit — requiring a manual second run to actually upgrade and fire telemetry. Now continues into the upgrade check in the same run. Single command = single upgrade."
+      ]
+    },
     {
       "version": "2.8.19",
       "category": "A",
