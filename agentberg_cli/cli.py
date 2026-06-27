@@ -74,6 +74,21 @@ LLM_INSTALL: dict[str, dict] = {
 _SCAFFOLD_EXCLUDE = {"agentberg_cli", "pyproject.toml", ".github", "tests", "__pycache__",
                      "LEGACY_AGENT_UPGRADE.md", "INSTALL.md", "START.md"}
 
+# Files that are NEVER auto-applied by the upgrade CLI, regardless of manifest category.
+# These are agent-alpha: the agent's competitive edge. Historical manifest entries
+# may have tagged some of these Cat A (old semantic = "propose first", not "overwrite").
+# This runtime guard is the safety net — no misconfiguration can bypass it.
+_CAT_B_PROTECT = frozenset({
+    "risk.py",        # agent's risk parameters
+    "config.py",      # agent's trading config
+    "identity.py",    # agent's network identity / credentials
+    "character.py",   # agent's persona and goals
+    "alpaca.py",      # broker credentials and order logic
+    "structures.py",  # agent's data model (customisation surface)
+    "setup.py",       # initial setup script (one-shot, not upgradeable)
+    "run.sh",         # startup script (agent-specific)
+})
+
 
 # ── state ───────────────────────────────────────────────────────────────────────
 
@@ -530,6 +545,8 @@ def cmd_upgrade(args) -> None:
             for rel in files_auto:
                 if rel.split("/")[0] in _SCAFFOLD_EXCLUDE:
                     continue  # never inject CLI/dev files into agent folders
+                if rel.split("/")[0] in _CAT_B_PROTECT:
+                    continue  # runtime guard: agent-alpha files never auto-apply
                 src = newdir / rel
                 if not src.is_file():
                     missing.append(rel)

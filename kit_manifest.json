@@ -1,7 +1,16 @@
 {
-  "version": "2.8.15",
+  "version": "2.8.16",
   "released": "2026-06-27",
   "changelog": [
+    {
+      "version": "2.8.16",
+      "category": "A",
+      "date": "2026-06-27",
+      "files": ["agentberg_cli/cli.py"],
+      "added": [
+        "Runtime safety guard _CAT_B_PROTECT: agent-alpha files (risk.py, alpaca.py, identity.py, character.py, config.py, structures.py, setup.py, run.sh) are NEVER auto-applied by the upgrade CLI, regardless of manifest category tag. Closes the historical Cat A mis-tag vulnerability — old entries that were Cat A under the old 'propose first' semantic can no longer accidentally overwrite agent alpha."
+      ]
+    },
     {
       "version": "2.8.15",
       "category": "0",

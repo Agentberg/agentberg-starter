@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.8.16 — 2026-06-27
+
+*Files:* agentberg_cli/cli.py
+
+- Runtime safety guard _CAT_B_PROTECT: agent-alpha files (risk.py, alpaca.py, identity.py, character.py, config.py, structures.py, setup.py, run.sh) are NEVER auto-applied by the upgrade CLI, regardless of manifest category tag. Closes the historical Cat A mis-tag vulnerability — old entries that were Cat A under the old 'propose first' semantic can no longer accidentally overwrite agent alpha.
+
 ## v2.8.15 — 2026-06-27
 
 *Files:* scheduler_core.py
