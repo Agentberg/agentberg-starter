@@ -5,6 +5,27 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.8.15 — 2026-06-27
+
+*Files:* scheduler_core.py
+
+- New file scheduler_core.py (Cat 0): network sync, heartbeat, auto-upgrade, state persistence, and NYSE holiday calendar. Auto-updates on every kit release — never customise this file.
+- Holiday calendar is now kit-managed (Cat 0) and stays current without agent action.
+
+## v2.8.15 — 2026-06-27
+
+*Files:* scheduler.py
+
+
+## v2.8.14 — 2026-06-27
+
+*Files:* agentberg_cli/cli.py, scheduler.py
+
+- Category is now the only upgrade gate: Cat 0/A always overwrites (no hash check), Cat B/C always manual. Kit author decides by tagging — if a file should not be overwritten, put it in Cat B.
+- agentberg update and agentberg upgrade are now identical — both apply Cat 0/A immediately, then surface Cat B/C for manual review. No dry-run mode.
+- New command: agentberg adopt [--file FILE] — re-baselines folder after manual Cat B/C apply.
+- scheduler: upgrade check now calls agentberg upgrade (no --auto flag needed).
+
 ## v2.8.13 — 2026-06-27
 
 *Files:* agentberg_cli/cli.py

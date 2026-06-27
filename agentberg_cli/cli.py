@@ -465,10 +465,10 @@ def _pending_entries(new_manifest: dict, adopted_version: str) -> list[dict]:
 
 
 def cmd_upgrade(args) -> None:
-    """Pull-to-review the latest kit. With --auto, apply Category 0 and A changes
-    to UNTOUCHED files behind snapshot + compile-verify + rollback."""
+    """Upgrade the kit: auto-apply Cat 0/A changes to untouched files (snapshot +
+    compile-verify + rollback), then surface Cat B/C items for manual review."""
     folder = _folder(args)
-    auto = getattr(args, "auto", False)
+    auto = True  # always auto-apply; --auto flag kept for backwards compat
 
     adopted = _load_adopted(folder)
     if not adopted:
@@ -499,112 +499,82 @@ def cmd_upgrade(args) -> None:
             return
 
         pending = _pending_entries(new_manifest, adopted["version"])
-        # Cat 0 + A → eligible for auto-apply (gated by untouched-file check).
-        # Cat B + C → never auto: identity files and merge-not-replace configs.
+        # Category IS the gate. Kit author decides by tagging:
+        #   Cat 0 / A → always overwrite (platform files agents should not customise)
+        #   Cat B / C → never auto (agent's alpha: risk params, identity, merge-only configs)
         auto_entries = [e for e in pending if str(e.get("category")) in ("0", "A")]
         hard_block   = [e for e in pending if str(e.get("category")) not in ("0", "A")]
 
         print(f"\nUpgrade available: v{adopted['version']} → v{latest}")
-        print(f"  Cat 0/A (auto if untouched): {len(auto_entries)} version(s)")
-        print(f"  Cat B/C (always manual):     {len(hard_block)} version(s)")
+        print(f"  Cat 0/A (auto-apply, always): {len(auto_entries)} version(s)")
+        print(f"  Cat B/C (manual after auto):  {len(hard_block)} version(s)")
 
-        if not auto:
+        # ── STEP 1: AUTO-APPLY Cat 0 + A (always, no hash gate) ─────────────────
+        applied, missing = [], []
+        if auto_entries:
+            # GATE 1: snapshot before touching anything.
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            backup = folder.parent / f"{folder.name}-backup-{ts}"
+            shutil.copytree(folder, backup)
+            print(f"\n  snapshot: {backup}")
+
+            # De-duped file list from all auto-eligible entries.
+            seen_rels: set[str] = set()
+            files_auto: list[str] = []
             for e in auto_entries:
-                cat = e.get("category", "?")
-                print(f"\n  [{cat}] v{e['version']} — would auto-apply (if untouched):")
-                for line in e.get("added", e.get("fixed", [])):
-                    print(f"        • {line[:100]}")
-            if hard_block:
-                print("\n  Always-manual (run UPGRADING.md procedure):")
-                for e in hard_block:
-                    print(f"     [{e.get('category','?')}] v{e['version']} ({', '.join(e.get('files', []))})")
-            print("\nRun `agentberg upgrade --auto` to apply eligible changes.")
-            return
+                for rel in e.get("files", []):
+                    if rel not in seen_rels:
+                        files_auto.append(rel)
+                        seen_rels.add(rel)
 
-        # ── AUTO-APPLY Cat 0 + Cat A (untouched files only) ─────────────────────
-        if not auto_entries:
-            print("\nNothing to auto-apply (no Cat 0/A changes pending).")
-            if hard_block:
-                print("Pending B/C changes need manual review — see UPGRADING.md.")
-            return
-
-        # GATE 1: snapshot the whole folder before touching anything.
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        backup = folder.parent / f"{folder.name}-backup-{ts}"
-        shutil.copytree(folder, backup)
-        print(f"\n  snapshot: {backup}")
-
-        # Build de-duped file list: (rel, category) from all auto-eligible entries.
-        files_auto: list[tuple[str, str]] = []
-        seen_rels: set[str] = set()
-        for e in auto_entries:
-            cat = str(e.get("category", "0"))
-            for rel in e.get("files", []):
-                if rel not in seen_rels:
-                    files_auto.append((rel, cat))
-                    seen_rels.add(rel)
-
-        applied, skipped_touched, missing = [], [], []
-        for rel, _cat in files_auto:
-            if rel.split("/")[0] in _SCAFFOLD_EXCLUDE:
-                continue  # never inject CLI/dev files into agent folders
-            src = newdir / rel
-            if not src.is_file():
-                missing.append(rel)
-                continue
-            cur = folder / rel
-            base_hash = adopted["files"].get(rel)
-            if cur.exists():
-                cur_hash = _sha256(cur)
-                if cur_hash == _sha256(src):
-                    continue  # already identical — no-op
-                # GATE 2: only replace files the agent has NOT customized.
-                if base_hash is not None and cur_hash != base_hash:
-                    skipped_touched.append(rel)
+            for rel in files_auto:
+                if rel.split("/")[0] in _SCAFFOLD_EXCLUDE:
+                    continue  # never inject CLI/dev files into agent folders
+                src = newdir / rel
+                if not src.is_file():
+                    missing.append(rel)
                     continue
-            cur.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, cur)
-            applied.append(rel)
+                cur = folder / rel
+                if cur.exists() and _sha256(cur) == _sha256(src):
+                    continue  # already identical — no-op
+                cur.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, cur)
+                applied.append(rel)
 
-        # GATE 3: byte-compile any applied Python — a broken file rolls everything back.
-        pyfiles = [str(folder / r) for r in applied if r.endswith(".py")]
-        if pyfiles:
-            res = subprocess.run([sys.executable, "-m", "py_compile", *pyfiles],
-                                 capture_output=True, text=True)
-            if res.returncode != 0:
-                shutil.rmtree(folder)
-                shutil.move(str(backup), str(folder))
-                sys.exit(f"Compile failed after apply — rolled back from snapshot.\n{res.stderr}")
+            # GATE 2: byte-compile applied Python — broken file rolls back.
+            pyfiles = [str(folder / r) for r in applied if r.endswith(".py")]
+            if pyfiles:
+                res = subprocess.run([sys.executable, "-m", "py_compile", *pyfiles],
+                                     capture_output=True, text=True)
+                if res.returncode != 0:
+                    shutil.rmtree(folder)
+                    shutil.move(str(backup), str(folder))
+                    sys.exit(f"Compile failed — rolled back from snapshot.\n{res.stderr}")
 
-        # Advance adopted version to latest ONLY when nothing remains pending:
-        # no hard-block (B/C) entries AND no Cat A files the agent customized.
-        for rel in applied:
-            adopted["files"][rel] = _sha256(folder / rel)
-        pin = bool(hard_block) or bool(skipped_touched)
-        if not pin:
-            adopted["version"] = latest
-            _sync_pyproject_version(folder, latest)
+        # Version always advances after Cat 0/A applied. Cat B/C surface separately.
+        adopted["version"] = latest
+        _sync_pyproject_version(folder, latest)
         _save_adopted(folder, adopted)
 
-        n_entries = len(auto_entries)
-        print(f"\n✓ Applied {len(applied)} file(s) from {n_entries} Cat 0/A release(s).")
-        for rel in applied:
-            print(f"    updated  {rel}")
-        for rel in skipped_touched:
-            print(f"    skipped  {rel}  (customized — review manually)")
+        if applied:
+            print(f"\n✓ Applied {len(applied)} file(s) from {len(auto_entries)} Cat 0/A release(s).")
+            for rel in applied:
+                print(f"    updated  {rel}")
+        elif auto_entries:
+            print(f"\n  Cat 0/A files already up to date.")
+        else:
+            print(f"\n  No Cat 0/A changes in this upgrade.")
         for rel in missing:
             print(f"    missing  {rel}  (not in latest kit — skipped)")
+        print(f"\n  Now at v{latest}.")
+
+        # ── STEP 2: SURFACE Cat B/C for manual review ────────────────────────────
         if hard_block:
-            print(f"\n  {len(hard_block)} Cat B/C release(s) always need manual review (UPGRADING.md):")
+            print(f"\n  ── Manual review required ──────────────────────────────────")
+            print(f"  {len(hard_block)} Cat B/C release(s) — apply via UPGRADING.md:")
             for e in hard_block:
-                print(f"     [{e.get('category','?')}] v{e['version']}")
-        if skipped_touched:
-            print(f"\n  {len(skipped_touched)} file(s) skipped (customized). Review and re-run to advance version.")
-        if pin:
-            print(f"  Adopted version stays at v{adopted['version']} until pending items are reviewed.")
-        else:
-            print(f"\n  Now at v{latest}.")
-        print(f"\n  Snapshot kept at {backup}")
+                print(f"     [{e.get('category','?')}] v{e['version']} — {', '.join(e.get('files', []))}")
+            print(f"  After applying: run `agentberg adopt` to record the new baseline.")
 
         # ── Signal running scheduler to restart with new code ────────────────────
         if applied:
@@ -620,8 +590,39 @@ def cmd_upgrade(args) -> None:
 
 
 def cmd_update(args) -> None:
-    # `update` is the propose-only view; `upgrade --auto` applies Cat 0/A (untouched files).
+    # `update` and `upgrade` are identical — both apply Cat 0/A automatically.
     cmd_upgrade(args)
+
+
+def cmd_adopt(args) -> None:
+    """Record current folder state as the new adoption baseline.
+
+    Use after manually applying a Cat B/C change so the adopted version
+    reflects what's actually installed. Without --file: re-baselines all files.
+    With --file FILE: re-baselines that file only.
+    """
+    folder = _folder(args)
+    adopted = _load_adopted(folder)
+    if not adopted:
+        sys.exit("No adoption baseline — run `agentberg upgrade` first to create one.")
+
+    target = getattr(args, "file", None)
+
+    if target:
+        rel = target.replace("\\", "/").lstrip("/")
+        path = folder / rel
+        if not path.is_file():
+            sys.exit(f"Not found in agent folder: {rel}")
+        adopted["files"][rel] = _sha256(path)
+        _save_adopted(folder, adopted)
+        print(f"Adopted {rel} — baseline reset to current on-disk hash.")
+        print(f"Future upstream changes to this file will auto-apply if untouched.")
+    else:
+        new_hashes = _kit_file_hashes(folder)
+        adopted["files"] = new_hashes
+        _save_adopted(folder, adopted)
+        print(f"Full re-baseline: {len(new_hashes)} file(s) recorded.")
+        print(f"Run `agentberg upgrade` to apply any pending changes.")
 
 
 def main(argv=None) -> None:
@@ -643,17 +644,22 @@ def main(argv=None) -> None:
         ("run", cmd_run, "run one trading session"),
         ("start", cmd_start, "run the live scheduler"),
         ("chat", cmd_chat, "chat with your LLM in the trader folder"),
-        ("update", cmd_update, "pull-to-review the latest kit"),
+        ("update", cmd_update, "apply kit updates (Cat 0/A auto, Cat B/C flagged)"),
     ]:
         sp = sub.add_parser(name, help=help_)
         sp.add_argument("--dir", help="trader folder (default: the one from init)")
         sp.set_defaults(func=fn)
 
-    pu = sub.add_parser("upgrade", help="upgrade the kit; --auto applies Category 0 safely")
+    pu = sub.add_parser("upgrade", help="upgrade the kit; --auto applies Cat 0/A to untouched files")
     pu.add_argument("--dir", help="trader folder (default: the one from init)")
     pu.add_argument("--auto", action="store_true",
-                    help="auto-apply Category 0 (advisory, empty-safe) changes to untouched files")
+                    help="auto-apply Cat 0/A changes to untouched files (snapshot + rollback)")
     pu.set_defaults(func=cmd_upgrade)
+
+    pa = sub.add_parser("adopt", help="record current folder state as new baseline (after manual Cat B/C apply)")
+    pa.add_argument("--dir", help="trader folder (default: the one from init)")
+    pa.add_argument("--file", help="specific file to re-baseline (e.g. scheduler.py); omit for full re-baseline")
+    pa.set_defaults(func=cmd_adopt)
 
     args = p.parse_args(argv)
     args.func(args)

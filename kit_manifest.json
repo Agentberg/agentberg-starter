@@ -1,7 +1,38 @@
 {
-  "version": "2.8.13",
+  "version": "2.8.15",
   "released": "2026-06-27",
   "changelog": [
+    {
+      "version": "2.8.15",
+      "category": "0",
+      "date": "2026-06-27",
+      "files": ["scheduler_core.py"],
+      "added": [
+        "New file scheduler_core.py (Cat 0): network sync, heartbeat, auto-upgrade, state persistence, and NYSE holiday calendar. Auto-updates on every kit release — never customise this file.",
+        "Holiday calendar is now kit-managed (Cat 0) and stays current without agent action."
+      ]
+    },
+    {
+      "version": "2.8.15",
+      "category": "B",
+      "date": "2026-06-27",
+      "files": ["scheduler.py"],
+      "changed": [
+        "scheduler.py now imports infrastructure from scheduler_core (Cat 0). Cat B: review the import changes and SESSION_TIMES / MARKET_OPEN / CLOSE constants are unchanged."
+      ]
+    },
+    {
+      "version": "2.8.14",
+      "category": "A",
+      "date": "2026-06-27",
+      "files": ["agentberg_cli/cli.py", "scheduler.py"],
+      "added": [
+        "Category is now the only upgrade gate: Cat 0/A always overwrites (no hash check), Cat B/C always manual. Kit author decides by tagging — if a file should not be overwritten, put it in Cat B.",
+        "agentberg update and agentberg upgrade are now identical — both apply Cat 0/A immediately, then surface Cat B/C for manual review. No dry-run mode.",
+        "New command: agentberg adopt [--file FILE] — re-baselines folder after manual Cat B/C apply.",
+        "scheduler: upgrade check now calls agentberg upgrade (no --auto flag needed)."
+      ]
+    },
     {
       "version": "2.8.13",
       "category": "A",
