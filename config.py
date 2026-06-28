@@ -105,6 +105,18 @@ MANUAL_BLOCKED_SECTORS: list[str] = []
 # Regimes to sit out entirely. "bear" means no new longs.
 BLOCKED_REGIMES: list[str] = []
 
+# ── Alert email (L3 failure trap) ─────────────────────────────────────────────
+# Set these in .env to receive an email when execution halts due to an LLM failure.
+# SMTP_HOST defaults to smtp.gmail.com (use an app password, not your account password).
+ALERT_EMAIL: str = os.environ.get("ALERT_EMAIL", "")
+SMTP_HOST:   str = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+try:
+    SMTP_PORT: int = int(os.environ.get("SMTP_PORT", "587"))
+except (ValueError, TypeError):
+    SMTP_PORT = 587
+SMTP_USER:   str = os.environ.get("SMTP_USER", "")
+SMTP_PASS:   str = os.environ.get("SMTP_PASS", "")
+
 # ── Character overlay ──────────────────────────────────────────────────────────
 # If onboarding is complete (character.json), apply the operator's persona ON TOP of
 # the defaults above. Anything the human deferred keeps the kit default. The agent

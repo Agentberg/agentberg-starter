@@ -18,8 +18,10 @@ from __future__ import annotations
 import datetime
 import json as _json
 import os
+import smtplib
 import sys
 import time
+from email.mime.text import MIMEText
 
 import character
 import config as cfg
@@ -30,9 +32,51 @@ import risk
 import structures
 from agentberg import AgentbergClient
 from alpaca import AlpacaClient
-from llm import rank_candidates
+import llm as _llm
+from llm import rank_candidates, rank_candidates_v2, session_stance, trade_decision
 
 _SESSION_STATE = os.path.join("logs", "session_state.json")
+
+
+def _send_alert_email(subject: str, body: str) -> None:
+    """Send an alert email via SMTP env vars. Silently no-ops if not configured."""
+    recipient = os.environ.get("ALERT_EMAIL", "")
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+    if not (recipient and smtp_user and smtp_pass):
+        print(f"    [alert] email not configured — set ALERT_EMAIL / SMTP_USER / SMTP_PASS in .env")
+        return
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    try:
+        msg = MIMEText(body, "plain")
+        msg["Subject"] = subject
+        msg["From"]    = smtp_user
+        msg["To"]      = recipient
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, [recipient], msg.as_string())
+        print(f"    [alert] email sent → {recipient}")
+    except Exception as e:
+        print(f"    [alert] email failed ({e})")
+
+
+def _pre_allocate(primaries: list[dict], total_risk_usd: float, min_conviction: float = 0.60) -> dict:
+    """Conviction-weighted capital split across primary candidates.
+
+    Scores are squared before normalising so high-conviction candidates get
+    meaningfully more capital than marginal ones (agy feedback: uniform weights
+    on clustered 0.5x scores defeat the purpose of conviction scoring).
+    """
+    if not primaries or total_risk_usd <= 0:
+        return {}
+    eligible = [c for c in primaries if c.get("conviction", 0) >= min_conviction]
+    if not eligible:
+        eligible = primaries
+    scores = {c["ticker"]: (c.get("conviction", 0.5) ** 2) for c in eligible}
+    total  = sum(scores.values()) or 1.0
+    return {ticker: total_risk_usd * (score / total) for ticker, score in scores.items()}
 
 
 def _write_session_state(result: str) -> None:
@@ -369,6 +413,23 @@ def run_session():
     except Exception as e:
         print(f"    [0e] macro calendar failed ({e}) — using risk_level fallback")
 
+    # ── Step 0f: L1 Session Stance ────────────────────────────────────────────
+    # One LLM call: regime + risk + health + 30d track record → session_stance.
+    # Sets risk_budget (fraction of equity to deploy) and max_concurrent (slots).
+    # Shapes everything downstream without touching candidate-level logic.
+    print("[0f] Computing session stance (L1)...")
+    _l1_perf = memory.get_summary_stats(days=30)
+    stance = session_stance(
+        regime=regime, risk_level=risk_level, health_label=health_label,
+        performance_stats=_l1_perf, character_brief=character.persona_brief(),
+    )
+    print(f"    Stance: {stance['stance'].upper()} | budget: {stance['risk_budget']:.0%} "
+          f"| max: {stance['max_concurrent']} slot(s) | focus: {stance['focus']}")
+    if stance.get("forbidden_sectors"):
+        print(f"    L1 forbidden: {', '.join(stance['forbidden_sectors'])}")
+    if stance.get("trusted_sectors"):
+        print(f"    L1 trusted:   {', '.join(stance['trusted_sectors'])}")
+
     # ── Step 1: Network intelligence ──────────────────────────────────────────
     print("[1] Querying Agentberg network...")
     network_blocked_map = _agentberg.get_blocked_sectors()          # {sector: finding_id}
@@ -662,19 +723,38 @@ def run_session():
     print(f"    {len(candidates)} candidate(s) before LLM filter")
     _funnel_beta = len(candidates)
 
-    # ── Step 3b: LLM ranking with self-reflection ─────────────────────────────
-    # The agent reviews its own track record before ranking — this is the reflection
-    # loop: win rates, sector P&L, last 5 closed trades vs their thesis. Without this,
-    # every ranking call starts blind, unable to improve toward the operator's goals.
+    # ── Step 3b: L2 Ranking — conviction scores + primary/buffer split ────────
+    # Candidates are ranked into two lists:
+    #   primaries: top max_concurrent slots — capital will be pre-allocated to these
+    #   buffer:    50% excess candidates — inherit a dropped primary's slot at execution
+    # Each candidate gets a conviction score (0.0-1.0) used for proportional allocation.
     performance_context = {
         "stats":   memory.get_summary_stats(days=90),
         "sectors": memory.get_sector_performance(days=90),
         "recent":  memory.get_recent_trades(limit=10),
     }
-    candidates = rank_candidates(candidates, regime, risk_level, health_label,
-                                 network_blocked, network_signals, performance_context)
-    _funnel_llm = len(candidates)
-    candidates = candidates[:cfg.MAX_NEW_PER_CYCLE]
+    l2_result = rank_candidates_v2(
+        candidates, stance["max_concurrent"], regime, risk_level, health_label,
+        network_blocked, network_signals, performance_context,
+        forbidden_sectors=stance.get("forbidden_sectors", []),
+        trusted_sectors=stance.get("trusted_sectors", []),
+        focus=stance.get("focus"),
+        l1_stance=stance.get("stance"),
+    )
+    primaries = l2_result["primaries"]
+    buffer    = l2_result["buffer"]
+    _funnel_llm = len(primaries)
+
+    # ── Step 3b.5: Pre-allocation — conviction-weighted capital split ──────────
+    # Allocate BEFORE any L3 call so queue position never biases capital access.
+    # Buffer candidates do NOT receive pre-allocation — they inherit a dropped
+    # primary's slot and its fixed dollar amount at execution time.
+    total_risk_usd = equity * stance["risk_budget"]
+    alloc_map = _pre_allocate(primaries, total_risk_usd)
+    print(f"    Pre-alloc: ${total_risk_usd:,.0f} risk budget | "
+          f"{len(primaries)} primary slot(s) + {len(buffer)} buffer")
+    for ticker_a, amt_a in alloc_map.items():
+        print(f"    Alloc {ticker_a}: ${amt_a:,.0f}")
 
     # ── Step 3c: Send heartbeat (telemetry) ────────────────────────────────────
     # Report kit version, universe size, and available candidates for diagnostics
@@ -748,29 +828,49 @@ def run_session():
                 kit_version=kit_version,
             )
 
-    # ── Step 4: Execute ────────────────────────────────────────────────────────
-    print(f"[4] Executing {len(candidates)} trade(s) ({mode})...")
-    executed = []
+    # ── Step 4: Execute — work queue with L3 per-candidate decisions ─────────
+    # Work queue:  primaries carry conviction-weighted pre-allocated amounts.
+    # Buffer queue: 50% excess candidates — fill dropped primary slots once
+    #               (no cascading fills: _is_buffer_fill guards infinite loops).
+    _candidates_total = len(primaries) + len(buffer)
+    print(f"[4] Executing — {len(primaries)} primary slot(s) + {len(buffer)} buffer ({mode})...")
+    executed: list = []
 
-    # Guard: tickers already held at the broker (catches restart-within-window re-entry)
     held_tickers: set[str] = {p["symbol"] for p in positions}
-    # Guard: tickers ordered this session (catches duplicate candidates across sectors)
     traded_this_session: set[str] = set()
 
-    _candidates_total = len(candidates)
-    for _rank_pos, c in enumerate(candidates, start=1):
+    _work_queue = [
+        dict(c, _alloc_usd=alloc_map.get(c["ticker"], 0), _is_buffer_fill=False)
+        for c in primaries
+    ]
+    _buf_queue   = list(buffer)
+    _slots_opened = 0
+
+    while _work_queue:
+        c         = _work_queue.pop(0)
         ticker    = c["ticker"]
         sector    = c["sector"]
         direction = c["direction"]
+        alloc_usd = c.get("_alloc_usd", 0)
+        is_buffer = c.get("_is_buffer_fill", False)
+        _rank_pos = _slots_opened + 1
+
+        def _pull_buffer():
+            if _buf_queue and not is_buffer:
+                _b = dict(_buf_queue.pop(0))
+                # Buffer candidate gets its own C²-proportional share — not the primary's budget.
+                # Inheriting the primary's larger allocation over-funds a low-conviction trade.
+                primary_sq = max(c.get("conviction", 0.75) ** 2, 0.01)
+                buffer_sq  = _b.get("conviction", 0.58) ** 2
+                _b["_alloc_usd"]      = alloc_usd * (buffer_sq / primary_sq)
+                _b["_is_buffer_fill"] = True
+                _work_queue.insert(0, _b)
 
         if ticker in held_tickers or ticker in traded_this_session:
-            print(f"    SKIP {ticker}: already have open position or already ordered this session")
+            print(f"    SKIP {ticker}: already held / ordered this session")
+            _pull_buffer()
             continue
 
-        # Auto-link findings so auto-votes fire at trade close (pnl>0→upvote, pnl<0→downvote).
-        # Ticker-level: from_finding_id set at scan time (STEP 3).
-        # Sector-level: network_blocked_map finding for this sector — vote reflects whether
-        # the sector-failure signal was correct. Both are empirical; no opinion votes.
         _trade_fids: list[str] = []
         if c.get("from_finding_id"):
             _trade_fids.append(str(c["from_finding_id"]))
@@ -780,39 +880,75 @@ def run_session():
                 _trade_fids.append(str(_sector_fid))
         trade_finding_ids = _trade_fids or None
 
-        # Trade rationale (PRIVATE to the operator) — assembled from the REAL signal +
-        # the AI's recorded reason, captured NOW so it can't be hallucinated after the
-        # outcome is known. Recorded with the trade; reviewed via `python journal.py`.
         thesis = f"{direction} {ticker} [{sector}] — {c.get('day_change', 0):+.1%} momentum"
         if c.get("reason"):
             thesis += f"; AI: {c['reason']}"
         expected_pct = cfg.EQUITY_TAKE_PROFIT_PCT if mode == "equity" else cfg.TAKE_PROFIT_PCT
-        stop_pct = cfg.EQUITY_STOP_LOSS_PCT if mode == "equity" else cfg.OPTION_STOP_LOSS_PCT
-        signal = {"day_change": c.get("day_change"), "direction": direction}
+        stop_pct     = cfg.EQUITY_STOP_LOSS_PCT   if mode == "equity" else cfg.OPTION_STOP_LOSS_PCT
+        signal       = {"day_change": c.get("day_change"), "direction": direction}
 
         if mode == "equity":
-            pos_value = equity * effective_position_pct
+            # ── L3: per-candidate trade decision (fixed pre-allocated budget) ──
+            l3 = trade_decision(
+                c, alloc_usd, regime, character.persona_brief(),
+                focus=stance.get("focus"), l1_stance=stance.get("stance"),
+            )
+            if l3.get("_l3_failed"):
+                # LLM failure (not a deliberate skip) — halt execution and alert
+                print(f"    [trap] L3_EXECUTION_FAILURE on {ticker} — halting session, alerting operator")
+                _agentberg.report_issue(
+                    trap_name="L3_EXECUTION_FAILURE",
+                    concern=f"L3 LLM failure on {ticker}: {l3.get('reason', 'unknown error')}",
+                    severity="critical",
+                    diagnostics={
+                        "ticker":  ticker,
+                        "sector":  sector,
+                        "alloc_usd": alloc_usd,
+                        "regime":  regime,
+                        "reason":  l3.get("reason", ""),
+                    },
+                    kit_version=kit_version,
+                )
+                _send_alert_email(
+                    subject=f"[{cfg.AGENT_ID}] L3 EXECUTION FAILURE — session halted",
+                    body=(
+                        f"Agent: {cfg.AGENT_ID}\n"
+                        f"Ticker: {ticker} ({sector})\n"
+                        f"Regime: {regime}\n"
+                        f"Error: {l3.get('reason', 'LLM unavailable')}\n\n"
+                        f"Trades already executed this session: {len(executed)}\n"
+                        f"Remaining candidates abandoned: {len(_work_queue) + len(_buf_queue)}\n\n"
+                        f"Execution halted. Check LLM adapter configuration and retry."
+                    ),
+                )
+                break  # halt — do not attempt remaining candidates
+            if not l3.get("execute", False):
+                print(f"    L3 SKIP {ticker}: {l3.get('reason', '')} — pulling buffer")
+                _pull_buffer()
+                continue
+
+            size_usd   = min(l3.get("size_usd") or alloc_usd, alloc_usd)
+            stop_pct   = l3.get("stop_pct",   cfg.EQUITY_STOP_LOSS_PCT)
+            target_pct = l3.get("target_pct", cfg.EQUITY_TAKE_PROFIT_PCT)
+
             allowed, reason = risk.check_equity(
-                ticker, sector, regime, blocked_sectors, pos_value, equity, open_count
+                ticker, sector, regime, blocked_sectors, size_usd, equity, open_count
             )
             if not allowed:
                 print(f"    SKIP {ticker}: {reason}")
                 continue
             try:
-                # Use live snapshot price for sizing and bracket levels —
-                # bar close is yesterday's price; stop off a stale price
-                # is wrong and can misplace the bracket by several percent.
                 live_price = _alpaca.get_live_price(ticker)
                 if live_price is None:
                     print(f"    [warn] live price fetch failed for {ticker} — using bar close ${c['price']:.2f}")
                     live_price = c["price"]
-                qty          = max(1, int(pos_value / live_price))
-                side         = "buy" if direction == "bullish" else "sell"
-                stop_price        = round(live_price * (1 - cfg.EQUITY_STOP_LOSS_PCT), 2) if side == "buy" else None
-                take_profit_price = round(live_price * (1 + cfg.EQUITY_TAKE_PROFIT_PCT), 2) if side == "buy" else None
-                order      = _alpaca.submit_order(ticker, qty, side,
-                                stop_loss_price=stop_price, take_profit_price=take_profit_price)
-                net_open   = _agentberg.open_trade(
+                qty               = max(1, int(size_usd / live_price))
+                side              = "buy" if direction == "bullish" else "sell"
+                stop_price        = round(live_price * (1 - stop_pct),   2) if side == "buy" else None
+                take_profit_price = round(live_price * (1 + target_pct), 2) if side == "buy" else None
+                order    = _alpaca.submit_order(ticker, qty, side,
+                               stop_loss_price=stop_price, take_profit_price=take_profit_price)
+                net_open = _agentberg.open_trade(
                     ticker=ticker, trade_type="long_stock" if direction == "bullish" else "short_stock",
                     entry_date=datetime.date.today().isoformat(),
                     finding_ids=trade_finding_ids,
@@ -822,18 +958,24 @@ def run_session():
                     network_aligned=bool(trade_finding_ids),
                     network_signal=direction, macro_window=_session_macro_window,
                 )
-                trade_id   = memory.record_trade_open(ticker, sector, live_price, qty,
-                                signal_data=signal, thesis=thesis, expected_pct=expected_pct, stop_pct=stop_pct,
-                                network_trade_id=net_open.get("trade_id") if net_open else None,
-                                entry_regime=regime, entry_beta=c.get("beta"),
-                                network_aligned=bool(trade_finding_ids),
-                                network_signal=direction, macro_window=_session_macro_window,
-                                candidates_ranked=_candidates_total, rank_position=_rank_pos)
-                print(f"    ORDER {ticker}: {side} ×{qty} @ ~${live_price:.2f}  stop=${stop_price or 'none'}  tp=${take_profit_price or 'none'}")
+                trade_id = memory.record_trade_open(
+                    ticker, sector, live_price, qty,
+                    signal_data=signal, thesis=thesis,
+                    expected_pct=expected_pct, stop_pct=stop_pct,
+                    network_trade_id=net_open.get("trade_id") if net_open else None,
+                    entry_regime=regime, entry_beta=c.get("beta"),
+                    network_aligned=bool(trade_finding_ids),
+                    network_signal=direction, macro_window=_session_macro_window,
+                    candidates_ranked=_candidates_total, rank_position=_rank_pos,
+                )
+                print(f"    ORDER {ticker}: {side} ×{qty} @ ~${live_price:.2f}  "
+                      f"stop=${stop_price or 'none'}  tp=${take_profit_price or 'none'}  "
+                      f"alloc=${size_usd:,.0f}  conviction={c.get('conviction', 0):.0%}")
                 executed.append({**c, "qty": qty, "order_id": order["id"], "memory_id": trade_id})
                 traded_this_session.add(ticker)
                 held_tickers.add(ticker)
-                open_count += 1
+                open_count   += 1
+                _slots_opened += 1
             except Exception as e:
                 print(f"    ORDER FAILED {ticker}: {e}")
 
@@ -880,37 +1022,41 @@ def run_session():
                     network_aligned=bool(trade_finding_ids),
                     network_signal=direction, macro_window=_session_macro_window,
                 )
-                trade_id = memory.record_trade_open(ticker, sector, limit_price, 1, trade_type=f"long_{option_type}",
-                                signal_data=signal, thesis=thesis, expected_pct=expected_pct, stop_pct=stop_pct,
-                                long_symbol=contract["symbol"],
-                                network_trade_id=net_open.get("trade_id") if net_open else None,
-                                entry_regime=regime, entry_beta=c.get("beta"),
-                                entry_iv=iv_rank, entry_dte=dte,
-                                network_aligned=bool(trade_finding_ids),
-                                network_signal=direction, macro_window=_session_macro_window,
-                                candidates_ranked=_candidates_total, rank_position=_rank_pos)
-                print(f"    ORDER {ticker} {option_type.upper()} {contract['expiration_date']} ${contract['strike_price']} δ={delta:.2f} @ ${limit_price:.2f}")
+                trade_id = memory.record_trade_open(
+                    ticker, sector, limit_price, 1, trade_type=f"long_{option_type}",
+                    signal_data=signal, thesis=thesis, expected_pct=expected_pct, stop_pct=stop_pct,
+                    long_symbol=contract["symbol"],
+                    network_trade_id=net_open.get("trade_id") if net_open else None,
+                    entry_regime=regime, entry_beta=c.get("beta"),
+                    entry_iv=iv_rank, entry_dte=dte,
+                    network_aligned=bool(trade_finding_ids),
+                    network_signal=direction, macro_window=_session_macro_window,
+                    candidates_ranked=_candidates_total, rank_position=_rank_pos,
+                )
+                print(f"    ORDER {ticker} {option_type.upper()} {contract['expiration_date']} "
+                      f"${contract['strike_price']} δ={delta:.2f} @ ${limit_price:.2f}")
                 executed.append({**c, "symbol": contract["symbol"], "premium": limit_price, "memory_id": trade_id})
                 traded_this_session.add(ticker)
-                open_count += 1
+                open_count   += 1
+                _slots_opened += 1
             except Exception as e:
                 print(f"    ORDER FAILED {ticker}: {e}")
 
         elif mode == "spreads":
-            option_type   = "call" if direction == "bullish" else "put"
-            buy_contracts = _alpaca.find_option_contracts(ticker, option_type, min_dte=cfg.MIN_DTE, max_dte=cfg.MAX_DTE, min_delta=0.35, max_delta=0.50)
+            option_type    = "call" if direction == "bullish" else "put"
+            buy_contracts  = _alpaca.find_option_contracts(ticker, option_type, min_dte=cfg.MIN_DTE, max_dte=cfg.MAX_DTE, min_delta=0.35, max_delta=0.50)
             sell_contracts = _alpaca.find_option_contracts(ticker, option_type, min_dte=cfg.MIN_DTE, max_dte=cfg.MAX_DTE, min_delta=0.15, max_delta=0.30)
             if not buy_contracts or not sell_contracts:
                 print(f"    SKIP {ticker}: couldn't build spread")
                 continue
 
-            buy_leg  = buy_contracts[0]
-            sell_leg = next((s for s in sell_contracts if s["expiration_date"] == buy_leg["expiration_date"]), sell_contracts[0])
-            buy_ask  = float(buy_leg.get("ask_price") or 0)
-            sell_bid = float(sell_leg.get("bid_price") or 0)
-            net_debit     = round(buy_ask - sell_bid, 2)
-            spread_width  = abs(float(buy_leg["strike_price"]) - float(sell_leg["strike_price"]))
-            dte           = (datetime.date.fromisoformat(buy_leg["expiration_date"]) - datetime.date.today()).days
+            buy_leg      = buy_contracts[0]
+            sell_leg     = next((s for s in sell_contracts if s["expiration_date"] == buy_leg["expiration_date"]), sell_contracts[0])
+            buy_ask      = float(buy_leg.get("ask_price") or 0)
+            sell_bid     = float(sell_leg.get("bid_price") or 0)
+            net_debit    = round(buy_ask - sell_bid, 2)
+            spread_width = abs(float(buy_leg["strike_price"]) - float(sell_leg["strike_price"]))
+            dte          = (datetime.date.fromisoformat(buy_leg["expiration_date"]) - datetime.date.today()).days
 
             allowed, reason = risk.check_spread(
                 ticker, sector, regime, blocked_sectors, equity, open_count,
@@ -920,12 +1066,9 @@ def run_session():
                 print(f"    SKIP {ticker} spread: {reason}")
                 continue
 
-            # Build-time gate (structures.py): fail-closed structural check before any
-            # order is sent. Refuses unknown structures or any whose max_loss isn't a
-            # bounded positive number — naked/ratio legs can't get past this.
             ok, why = structures.validate_structure(
                 "debit_vertical", max_loss=net_debit * 100,
-                legs=[{"role": "long", "symbol": buy_leg["symbol"]},
+                legs=[{"role": "long",  "symbol": buy_leg["symbol"]},
                       {"role": "short", "symbol": sell_leg["symbol"]}],
             )
             if not ok:
@@ -943,19 +1086,23 @@ def run_session():
                     entry_dte=dte, network_aligned=bool(trade_finding_ids),
                     network_signal=direction, macro_window=_session_macro_window,
                 )
-                trade_id = memory.record_trade_open(ticker, sector, net_debit, 1, trade_type=f"{option_type}_spread",
-                                signal_data=signal, thesis=thesis, expected_pct=expected_pct, stop_pct=stop_pct,
-                                long_symbol=buy_leg["symbol"], short_symbol=sell_leg["symbol"],
-                                multiplier=100, order_id=order.get("id"),
-                                network_trade_id=net_open.get("trade_id") if net_open else None,
-                                entry_regime=regime, entry_beta=c.get("beta"),
-                                entry_dte=dte, network_aligned=bool(trade_finding_ids),
-                                network_signal=direction, macro_window=_session_macro_window,
-                                candidates_ranked=_candidates_total, rank_position=_rank_pos)
-                print(f"    SPREAD {ticker} {option_type.upper()} ${float(buy_leg['strike_price']):.0f}/${float(sell_leg['strike_price']):.0f} debit=${net_debit:.2f}")
+                trade_id = memory.record_trade_open(
+                    ticker, sector, net_debit, 1, trade_type=f"{option_type}_spread",
+                    signal_data=signal, thesis=thesis, expected_pct=expected_pct, stop_pct=stop_pct,
+                    long_symbol=buy_leg["symbol"], short_symbol=sell_leg["symbol"],
+                    multiplier=100, order_id=order.get("id"),
+                    network_trade_id=net_open.get("trade_id") if net_open else None,
+                    entry_regime=regime, entry_beta=c.get("beta"),
+                    entry_dte=dte, network_aligned=bool(trade_finding_ids),
+                    network_signal=direction, macro_window=_session_macro_window,
+                    candidates_ranked=_candidates_total, rank_position=_rank_pos,
+                )
+                print(f"    SPREAD {ticker} {option_type.upper()} "
+                      f"${float(buy_leg['strike_price']):.0f}/${float(sell_leg['strike_price']):.0f} debit=${net_debit:.2f}")
                 executed.append({**c, "memory_id": trade_id, "net_debit": net_debit})
                 traded_this_session.add(ticker)
-                open_count += 1
+                open_count   += 1
+                _slots_opened += 1
             except Exception as e:
                 print(f"    ORDER FAILED {ticker} spread: {e}")
 
@@ -967,7 +1114,7 @@ def run_session():
         portfolio_value=equity,
         buying_power=buying_power,
         blocked_sectors=blocked_sectors,
-        candidates_found=len(candidates),
+        candidates_found=_candidates_total,
         positions_opened=len(executed),
         positions_closed=memory.count_closed_today(),
         session_pnl=0,        # calculated from closed trades

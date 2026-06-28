@@ -1,7 +1,16 @@
 {
-  "version": "2.9.4",
-  "released": "2026-06-27",
+  "version": "2.10.0",
+  "released": "2026-06-28",
   "changelog": [
+    {
+      "version": "2.10.0",
+      "category": "A",
+      "date": "2026-06-28",
+      "files": ["llm.py", "agent.py", "config.py"],
+      "added": [
+        "L1/L2/L3 three-layer decision architecture. L1 (session_stance): one LLM call per cycle produces session_stance with stance (green/amber/red), risk_budget, max_concurrent, focus, forbidden_sectors, trusted_sectors. L2 (rank_candidates_v2): LLM ranks candidates into primaries + buffer (50% excess); conviction-weighted pre-allocation using squared scores; L1 stance + focus threaded into prompt. L3 (trade_decision): one LLM call per primary with fixed pre-allocated budget; L1 stance block surfaced directly (no re-derivation). Buffer fill: C²-proportional share, not inherited primary allocation. Conviction tiers forced (0.85 HIGH / 0.75 MID / 0.58 LOW). L3 failure (LLM timeout, bad JSON, no adapter) halts execution and fires report_issue with severity=critical and trap_name=L3_EXECUTION_FAILURE; deliberate execute=False skips still pull buffer as before. Alert email on L3 halt via SMTP (ALERT_EMAIL + SMTP_USER + SMTP_PASS in .env). Safety fixes: execute=False default (LLM failure no longer fires a trade); _safe_float() helper prevents ValueError on non-numeric LLM output. _extract_json_array/_object use text.find('```') to handle LLM preamble. config.py adds ALERT_EMAIL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS."
+      ]
+    },
     {
       "version": "2.9.4",
       "category": "A",
