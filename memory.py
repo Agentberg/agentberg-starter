@@ -90,6 +90,18 @@ def init_db():
                 sector       TEXT,
                 notes        TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS persisted_findings (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                finding_id   TEXT    NOT NULL UNIQUE,
+                category     TEXT,
+                claim        TEXT,
+                weight       REAL    DEFAULT 1.0,
+                confidence   REAL    NOT NULL,
+                sector       TEXT,
+                conditions   TEXT,
+                persisted_at TEXT    NOT NULL
+            );
         """)
         # Migrate older agent.db files to add the rationale columns.
         for col, typ in [("entry_thesis", "TEXT"), ("expected_pct", "REAL"),
@@ -554,6 +566,49 @@ def compute_attribution(window_days: int = 30) -> dict:
         "network_ignored_pnl": round(sum(r["pnl"] or 0 for r in ignored), 2),
         "macro_window_loss_rate": round(macro_losses / macro_total, 3) if macro_total else 0,
     }
+
+
+def save_persisted_finding(
+    finding_id: str,
+    confidence: float,
+    category: str = None,
+    claim: str = None,
+    weight: float = 1.0,
+    sector: str = None,
+    conditions: str = None,
+) -> bool:
+    """
+    Persist a network finding to local SQLite at agent-chosen confidence.
+    The agent decides when to call this — network never forces it.
+    Upserts on finding_id: re-persisting at a new confidence replaces the old entry.
+    Returns True on success.
+    """
+    now = datetime.datetime.utcnow().isoformat()
+    with _conn() as conn:
+        conn.execute(
+            """INSERT INTO persisted_findings
+                   (finding_id, category, claim, weight, confidence, sector, conditions, persisted_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(finding_id) DO UPDATE SET
+                   confidence   = excluded.confidence,
+                   weight       = excluded.weight,
+                   persisted_at = excluded.persisted_at""",
+            (finding_id, category, claim, weight, confidence, sector, conditions, now),
+        )
+    return True
+
+
+def get_persisted_findings(min_confidence: float = 0.0) -> list[dict]:
+    """Return all locally persisted findings at or above the given confidence threshold."""
+    with _conn() as conn:
+        rows = conn.execute(
+            """SELECT finding_id, category, claim, weight, confidence, sector, conditions, persisted_at
+               FROM persisted_findings
+               WHERE confidence >= ?
+               ORDER BY confidence DESC, persisted_at DESC""",
+            (min_confidence,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_portfolio_history(days: int = 60) -> list[dict]:

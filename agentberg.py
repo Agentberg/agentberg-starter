@@ -178,6 +178,48 @@ class AgentbergClient:
             print(f"[agentberg] publish_finding failed: {e}")
             return None
 
+    def get_finding(self, finding_id: str) -> dict | None:
+        """Fetch a single finding by id from the network."""
+        try:
+            return self._get(f"/findings/{finding_id}")
+        except Exception as e:
+            print(f"[agentberg] get_finding failed ({e})")
+            return None
+
+    def persist_finding(
+        self,
+        finding_id: str,
+        confidence: float,
+        finding: dict | None = None,
+    ) -> bool:
+        """
+        Persist a network finding to local SQLite at agent-chosen confidence.
+
+        The agent decides the confidence threshold — the network never forces adoption.
+        If `finding` is already in hand (e.g. from get_network_context), pass it
+        directly to skip the extra network fetch.
+
+        Example:
+            for f in network_context.get("sector_blocks", []):
+                if f["weight"] >= 2.0:
+                    client.persist_finding(f["finding_id"], confidence=0.9, finding=f)
+        """
+        import memory as _memory
+        if finding is None:
+            finding = self.get_finding(finding_id)
+            if finding is None:
+                print(f"[agentberg] persist_finding: could not fetch {finding_id}")
+                return False
+        return _memory.save_persisted_finding(
+            finding_id=finding_id,
+            confidence=confidence,
+            category=finding.get("category"),
+            claim=finding.get("claim"),
+            weight=finding.get("weight", 1.0),
+            sector=finding.get("sector"),
+            conditions=finding.get("conditions"),
+        )
+
     def add_trade(
         self,
         finding_id: str | None,

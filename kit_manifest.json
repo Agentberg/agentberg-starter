@@ -1,7 +1,16 @@
 {
-  "version": "2.10.0",
+  "version": "2.10.1",
   "released": "2026-06-28",
   "changelog": [
+    {
+      "version": "2.10.1",
+      "category": "A",
+      "date": "2026-06-28",
+      "files": ["memory.py", "agentberg.py"],
+      "added": [
+        "persist_finding(finding_id, confidence, finding=None): agent-driven local persistence of network findings. Writes to new persisted_findings SQLite table. Agent controls the confidence threshold — network never forces adoption. If finding dict is already in hand, pass it directly; otherwise kit fetches from network. Upserts on finding_id so re-persisting at new confidence replaces old entry. Companion get_persisted_findings(min_confidence=0.0) reads them back. window_days field confirmed end-to-end: compute_attribution() already accepts and returns window_days; attribution report schema and DB store it; agent.py passes it through. Category 0 decision logic (compute_window_days based on strategy_type + regime) deferred to future kit version."
+      ]
+    },
     {
       "version": "2.10.0",
       "category": "A",
