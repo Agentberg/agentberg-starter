@@ -1,7 +1,16 @@
 {
-  "version": "2.10.3",
+  "version": "2.10.4",
   "released": "2026-06-29",
   "changelog": [
+    {
+      "version": "2.10.4",
+      "category": "B",
+      "date": "2026-06-29",
+      "files": ["agentberg.py"],
+      "fixed": [
+        "Regime normalization: add_trade() and open_trade() now pass spy_regime through _norm_regime() before sending to the API. The API only accepts bull/bear/sideways but network regime feedback (e.g. from get_regime()) returns extended labels like trending_bull, strong_bear, choppy. Without normalization every agent using network regime feedback received a 422 on trade registration. _norm_regime() maps all known extended labels to the three valid values; unknown labels fall back to sideways."
+      ]
+    },
     {
       "version": "2.10.3",
       "category": "A",

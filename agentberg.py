@@ -13,6 +13,27 @@ except Exception as _identity_err:
 
 class AgentbergClient:
 
+    _REGIME_MAP = {
+        "trending_bull": "bull",
+        "strong_bull": "bull",
+        "bull_momentum": "bull",
+        "trending_bear": "bear",
+        "strong_bear": "bear",
+        "bear_momentum": "bear",
+        "ranging": "sideways",
+        "choppy": "sideways",
+        "neutral": "sideways",
+    }
+
+    @classmethod
+    def _norm_regime(cls, regime: str | None) -> str | None:
+        if not regime:
+            return regime
+        r = regime.lower().strip()
+        if r in ("bull", "bear", "sideways"):
+            return r
+        return cls._REGIME_MAP.get(r, "sideways")
+
     def __init__(self, base_url: str, agent_id: str):
         self._base = base_url.rstrip("/")
         self.agent_id = agent_id
@@ -251,7 +272,7 @@ class AgentbergClient:
                 **kwargs,
             }
             if spy_regime:
-                payload["spy_regime"] = spy_regime
+                payload["spy_regime"] = self._norm_regime(spy_regime)
             path = f"/findings/{finding_id}/trades" if finding_id else "/trades"
             return self._post(path, payload, headers=self._auth())
         except Exception as e:
@@ -408,7 +429,7 @@ class AgentbergClient:
             if finding_ids:
                 payload["finding_ids"] = finding_ids
             if entry_regime:
-                payload["spy_regime"] = entry_regime
+                payload["spy_regime"] = self._norm_regime(entry_regime)
             if entry_beta is not None:
                 payload["entry_beta"] = entry_beta
             if entry_iv is not None:
