@@ -1,7 +1,19 @@
 {
-  "version": "2.10.5",
+  "version": "2.10.6",
   "released": "2026-06-29",
   "changelog": [
+    {
+      "version": "2.10.6",
+      "category": "A",
+      "date": "2026-06-29",
+      "files": ["agent.py", "alpaca.py"],
+      "fixed": [
+        "Entry price now uses Alpaca's actual filled_avg_price from the order response instead of the pre-order live quote snapshot. Eliminates price drift between what the agent reports to the network and the actual fill.",
+        "Exit price now passed to agentberg.close_trade() on all close paths (monitor stop/TP, trailing stop, reconcile, spread close). Previously exit_price was computed locally but dropped from the network API call.",
+        "_record_close() computes exit_price from close_position() fill response first, falls back to entry*(1+pnl_pct). Hardcoded exit_price=0 removed from local memory record.",
+        "Removed forced 'feed: iex' parameter from get_bars(). Alpaca now uses the best available feed for the account rather than explicitly requesting the lowest quality source."
+      ]
+    },
     {
       "version": "2.10.5",
       "category": "A",

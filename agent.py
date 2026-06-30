@@ -263,7 +263,8 @@ def reconcile_ledger():
             exit_reason="reconciled_broker",
         )
         if t.get("network_trade_id"):
-            _agentberg.close_trade(t["network_trade_id"], pnl=pnl, pnl_pct=pnl_pct, exit_reason="manual")
+            _agentberg.close_trade(t["network_trade_id"], pnl=pnl, pnl_pct=pnl_pct,
+                                   exit_price=exit_price or None, exit_reason="manual")
         reconciled += 1
     if reconciled:
         print(f"[reconcile] Closed {reconciled} trade(s) from broker truth (server-side/offline exits)")
@@ -958,18 +959,20 @@ def run_session():
                 take_profit_price = round(live_price * (1 + target_pct), 2) if side == "buy" else None
                 order    = _alpaca.submit_order(ticker, qty, side,
                                stop_loss_price=stop_price, take_profit_price=take_profit_price)
+                # Use Alpaca's actual fill price; fall back to pre-order snapshot only if not yet filled
+                entry_price = float(order.get("filled_avg_price") or 0) or live_price
                 net_open = _agentberg.open_trade(
                     ticker=ticker, trade_type="long_stock" if direction == "bullish" else "short_stock",
                     entry_date=datetime.date.today().isoformat(),
                     finding_ids=trade_finding_ids,
-                    sector=sector, entry_price=live_price,
+                    sector=sector, entry_price=entry_price,
                     execution_env="paper" if cfg.ALPACA_PAPER else "live",
                     entry_regime=regime, entry_beta=c.get("beta"),
                     network_aligned=bool(trade_finding_ids),
                     network_signal=direction, macro_window=_session_macro_window,
                 )
                 trade_id = memory.record_trade_open(
-                    ticker, sector, live_price, qty,
+                    ticker, sector, entry_price, qty,
                     signal_data=signal, thesis=thesis,
                     expected_pct=expected_pct, stop_pct=stop_pct,
                     network_trade_id=net_open.get("trade_id") if net_open else None,
@@ -1253,7 +1256,8 @@ def check_positions():
                                       pnl_pct=net_pct, exit_reason=reason)
             print(f"    [journal] {trade['symbol']} closed {net_pct:+.1%} ({reason}) — review with `python journal.py`")
             if trade.get("network_trade_id"):
-                _agentberg.close_trade(trade["network_trade_id"], pnl=net_pl_dollars, pnl_pct=net_pct, exit_reason=reason)
+                _agentberg.close_trade(trade["network_trade_id"], pnl=net_pl_dollars, pnl_pct=net_pct,
+                                       exit_price=exit_price or None, exit_reason=reason)
             _vote_outcome(trade, net_pl_dollars)
         except Exception as e:
             print(f"[monitor] Spread close failed {trade['symbol']}: {e}")
@@ -1297,8 +1301,8 @@ def check_positions():
                               f"${current_price:.2f} below trail ${trail_stop:.2f} "
                               f"(HWM ${hwm:.2f}, up {unrealised_pnl_pct:.1%})")
                         try:
-                            _alpaca.close_position(symbol)
-                            _record_close(symbol, "trailing_stop", unrealised_pnl_pct)
+                            close_order = _alpaca.close_position(symbol)
+                            _record_close(symbol, "trailing_stop", unrealised_pnl_pct, close_order=close_order)
                         except Exception as e:
                             print(f"[monitor] Trailing stop close failed {symbol}: {e}")
                         continue
@@ -1316,8 +1320,8 @@ def check_positions():
 
         print(f"[monitor] {reason.upper()} {symbol}: {unrealised_pnl_pct:.1%} — closing")
         try:
-            _alpaca.close_position(symbol)
-            _record_close(symbol, reason, unrealised_pnl_pct)
+            close_order = _alpaca.close_position(symbol)
+            _record_close(symbol, reason, unrealised_pnl_pct, close_order=close_order)
         except Exception as e:
             print(f"[monitor] Close failed {symbol}: {e}")
 
@@ -1432,16 +1436,24 @@ def _apply_guidance_changes(changes: list[dict]) -> None:
         print(f"        → save failed ({e})")
 
 
-def _record_close(symbol: str, reason: str, pnl_pct: float):
+def _record_close(symbol: str, reason: str, pnl_pct: float, close_order: dict | None = None):
     open_trades = memory.get_open_trades()
     trade = next((t for t in open_trades if t["symbol"] == symbol or t.get("long_symbol") == symbol), None)
     if not trade:
         return
-    pnl_dollars = (trade.get("entry_price") or 0) * (trade.get("qty") or 0) * pnl_pct
-    memory.record_trade_close(trade["id"], exit_price=0, pnl=pnl_dollars, pnl_pct=pnl_pct, exit_reason=reason)
-    print(f"    [journal] {symbol} closed {pnl_pct:+.1%} ({reason}) — review with `python journal.py`")
+    entry_price = trade.get("entry_price") or 0
+    qty = trade.get("qty") or 0
+    mult = trade.get("multiplier") or 1
+    # Use Alpaca's actual fill price from the close order; fall back to computing from entry + pnl_pct
+    exit_price = float(close_order.get("filled_avg_price") or 0) if close_order else 0.0
+    if not exit_price and entry_price:
+        exit_price = round(entry_price * (1 + pnl_pct), 4)
+    pnl_dollars = (exit_price - entry_price) * qty * mult if (exit_price and entry_price) else entry_price * qty * mult * pnl_pct
+    memory.record_trade_close(trade["id"], exit_price=exit_price, pnl=pnl_dollars, pnl_pct=pnl_pct, exit_reason=reason)
+    print(f"    [journal] {symbol} closed {pnl_pct:+.1%} @ ${exit_price:.2f} ({reason})")
     if trade.get("network_trade_id"):
-        _agentberg.close_trade(trade["network_trade_id"], pnl=pnl_dollars, pnl_pct=pnl_pct, exit_reason=reason)
+        _agentberg.close_trade(trade["network_trade_id"], pnl=pnl_dollars, pnl_pct=pnl_pct,
+                               exit_price=exit_price or None, exit_reason=reason)
     _vote_outcome(trade, pnl_dollars)
 
 

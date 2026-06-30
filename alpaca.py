@@ -79,7 +79,6 @@ class AlpacaClient:
             "timeframe": timeframe,
             "limit": limit,
             "start": start,
-            "feed": "iex",
         })
         return data.get("bars", {}).get(ticker, [])
 
