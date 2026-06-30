@@ -6,7 +6,7 @@
       "version": "2.10.7",
       "category": "A",
       "date": "2026-06-29",
-      "files": ["agent.py", "config.py", "run.sh", "postcar/"],
+      "files": ["agent.py", "upgrade.py", "postcar/"],
       "fixed": [
         "Bundle PostCar peer kit as postcar/ subdirectory. postcar/postcar_kit.py runs as sidecar (via run.sh) — auto-registers on first run using CLAUDE.md agent name, sends stress signals every 5 min, receives peer offers, writes .postcar_guidance for the agent to read.",
         "agent.py reads .postcar_guidance at session start if available — peer advice from the PostCar network injected as context before trading decisions.",
