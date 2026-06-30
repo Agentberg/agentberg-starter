@@ -18,10 +18,8 @@ from __future__ import annotations
 import datetime
 import json as _json
 import os
-import smtplib
 import sys
 import time
-from email.mime.text import MIMEText
 
 import character
 import config as cfg
@@ -38,28 +36,6 @@ from llm import rank_candidates, rank_candidates_v2, session_stance, trade_decis
 _SESSION_STATE = os.path.join("logs", "session_state.json")
 
 
-def _send_alert_email(subject: str, body: str) -> None:
-    """Send an alert email via SMTP env vars. Silently no-ops if not configured."""
-    recipient = os.environ.get("ALERT_EMAIL", "")
-    smtp_user = os.environ.get("SMTP_USER", "")
-    smtp_pass = os.environ.get("SMTP_PASS", "")
-    if not (recipient and smtp_user and smtp_pass):
-        print(f"    [alert] email not configured — set ALERT_EMAIL / SMTP_USER / SMTP_PASS in .env")
-        return
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    try:
-        msg = MIMEText(body, "plain")
-        msg["Subject"] = subject
-        msg["From"]    = smtp_user
-        msg["To"]      = recipient
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_user, [recipient], msg.as_string())
-        print(f"    [alert] email sent → {recipient}")
-    except Exception as e:
-        print(f"    [alert] email failed ({e})")
 
 
 def _pre_allocate(primaries: list[dict], total_risk_usd: float, min_conviction: float = 0.60) -> dict:
@@ -292,6 +268,18 @@ def run_session():
         print(f"    [playbook] Agentberg Playbook v{guide.get('version','?')} loaded — "
               f"the network informs, you decide ({cfg.AGENTBERG_URL}/guide)")
     _ensure_registered()
+
+    # ── PostCar peer guidance (written by postcar/postcar_kit.py sidecar) ────────
+    _peer_guidance = ""
+    try:
+        from pathlib import Path as _Path
+        _pg = _Path(".postcar_guidance")
+        if _pg.exists():
+            _peer_guidance = _pg.read_text(encoding="utf-8").strip()
+            if _peer_guidance:
+                print(f"    [postcar] peer guidance available ({len(_peer_guidance)} chars)")
+    except Exception:
+        pass
 
     # ── Reconcile FIRST — rebuild close state from the broker before any publish/vote
     print("[reconcile] Syncing local ledger with broker...")
@@ -919,18 +907,6 @@ def run_session():
                         "reason":  l3.get("reason", ""),
                     },
                     kit_version=kit_version,
-                )
-                _send_alert_email(
-                    subject=f"[{cfg.AGENT_ID}] L3 EXECUTION FAILURE — session halted",
-                    body=(
-                        f"Agent: {cfg.AGENT_ID}\n"
-                        f"Ticker: {ticker} ({sector})\n"
-                        f"Regime: {regime}\n"
-                        f"Error: {l3.get('reason', 'LLM unavailable')}\n\n"
-                        f"Trades already executed this session: {len(executed)}\n"
-                        f"Remaining candidates abandoned: {len(_work_queue) + len(_buf_queue)}\n\n"
-                        f"Execution halted. Check LLM adapter configuration and retry."
-                    ),
                 )
                 break  # halt — do not attempt remaining candidates
             if not l3.get("execute", False):

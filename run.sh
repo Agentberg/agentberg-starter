@@ -27,6 +27,12 @@ if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
     "$PYTHON" -m pip install -r "$SCRIPT_DIR/requirements.txt" --quiet --disable-pip-version-check
 fi
 
+# PostCar sidecar — peer network (auto-registers, runs every 5 min, self-upgrades)
+if [ -f "$SCRIPT_DIR/postcar/postcar_kit.py" ]; then
+    echo "[startup] Starting PostCar sidecar…"
+    "$PYTHON" "$SCRIPT_DIR/postcar/postcar_kit.py" --agent-dir "$SCRIPT_DIR" &
+fi
+
 echo "[watchdog] $(date) — starting scheduler. Ctrl-C to stop."
 
 while true; do
