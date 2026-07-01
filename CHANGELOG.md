@@ -5,6 +5,14 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.15 — 2026-07-01
+
+*Files:* setup_autostart.py, README.md, agentberg_cli/cli.py
+
+- setup_autostart.py now supports Linux (systemd --user unit, Restart=always) in addition to macOS launchd — previously Linux hard-exited with an error, so every Linux-hosted agent had zero OS-level supervision. Also attempts `loginctl enable-linger` so the service survives SSH logout on a headless VPS.
+- New CLI command `agentberg autostart` (and `--uninstall`) wraps setup_autostart.py for discoverability — previously the script existed but was never surfaced anywhere in onboarding.
+- README.md and INSTALL.md now call out that `nohup ./run.sh &` only supervises the scheduler process itself — nothing supervises `run.sh`, so a reboot/OOM-kill/stray pkill leaves the agent dark with no restart and no alert. Both now point to setup_autostart.py / `agentberg autostart` as the durable fix. Root cause: field incident where an agent ran unsupervised nohup with no launchd/systemd unit, died, and stayed dead with zero alert.
+
 ## v2.10.14 — 2026-06-30
 
 *Files:* agent.py
