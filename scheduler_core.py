@@ -104,7 +104,7 @@ def _check_and_report_crash() -> None:
     started_at = state.get("ts", "unknown")
     log.warning(f"[session] Crash detected (started {started_at}) — filing support trap")
     try:
-        import cfg
+        import config as cfg
         from agentberg import AgentbergClient
         kit_version = None
         manifest = Path(__file__).parent / "kit_manifest.json"
@@ -126,7 +126,7 @@ def send_network_heartbeat() -> None:
     """Send heartbeat to Agentberg network. Also detects session crashes via state flag."""
     _check_and_report_crash()
     try:
-        import cfg
+        import config as cfg
         from agentberg import AgentbergClient
         kit_version = None
         manifest = Path(__file__).parent / "kit_manifest.json"
@@ -138,7 +138,7 @@ def send_network_heartbeat() -> None:
         )
         log.debug("[heartbeat] sent")
     except Exception as e:
-        log.debug(f"[heartbeat] {e}")
+        log.error(f"[heartbeat] failed to send: {e}")
 
 
 # ── Auto-upgrade ────────────────────────────────────────────────────────────────
@@ -184,7 +184,7 @@ def run_session_guarded(run_fn) -> None:
         tb = traceback.format_exc()
         log.error(f"[session] Unhandled crash — filing support trap: {exc}")
         try:
-            import cfg
+            import config as cfg
             from agentberg import AgentbergClient
             kit_version = None
             manifest = Path(__file__).parent / "kit_manifest.json"

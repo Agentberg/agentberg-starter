@@ -1,7 +1,18 @@
 {
-  "version": "2.10.15",
+  "version": "2.10.16",
   "released": "2026-07-01",
   "changelog": [
+    {
+      "version": "2.10.16",
+      "category": "0",
+      "date": "2026-07-01",
+      "files": ["scheduler_core.py"],
+      "fixed": [
+        "scheduler_core.py had `import cfg` (bare, wrong module) in 3 places — send_network_heartbeat(), _check_and_report_crash(), run_session_guarded() — but the kit has no cfg.py, only config.py (the rest of the codebase correctly uses `import config as cfg`, see agent.py). This ModuleNotFoundError silently broke network heartbeats and crash-trap filing for every agent since scheduler_core.py existed as Cat 0 infra. Fixed all 3 to `import config as cfg`.",
+        "The heartbeat failure was invisible because its except-handler logged at log.debug() while scheduler.py runs at logging.INFO — so a broken heartbeat never appeared in scheduler.log. Bumped that to log.error() so future breakage in this path is visible immediately instead of silently swallowed.",
+        "Net effect before this fix: heartbeats only reached Agentberg opportunistically via a separately-aliased call inside agent.py's run_session(), and only on a fully successful session — any session that crashed before that step (or the broken scheduler_core.py fallback) produced zero heartbeat with no error logged anywhere."
+      ]
+    },
     {
       "version": "2.10.15",
       "category": "A",
