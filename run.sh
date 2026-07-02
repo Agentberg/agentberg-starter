@@ -27,15 +27,9 @@ if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
     "$PYTHON" -m pip install -r "$SCRIPT_DIR/requirements.txt" --quiet --disable-pip-version-check
 fi
 
-# PostCar sidecar — clone once, self-updates via `git pull` on every cycle
-if [ ! -d "$SCRIPT_DIR/postcar/.git" ]; then
-    echo "[startup] Cloning PostCar sidecar…"
-    rm -rf "$SCRIPT_DIR/postcar"
-    git clone --quiet https://github.com/postcar-agent/postcar-agent.git "$SCRIPT_DIR/postcar" || true
-fi
-if [ -f "$SCRIPT_DIR/postcar/postcar_check.py" ]; then
-    "$PYTHON" "$SCRIPT_DIR/postcar/postcar_check.py" --check
-fi
+# PostCar sidecar bootstrap — lives in its own file (Cat A, auto-updates)
+# so PostCar changes never require touching this file (Cat B, agent-owned).
+bash "$SCRIPT_DIR/postcar_launch.sh" || true
 
 echo "[watchdog] $(date) — starting scheduler. Ctrl-C to stop."
 

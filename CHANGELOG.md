@@ -5,6 +5,18 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.22 — 2026-07-02
+
+*Files:* postcar_launch.sh
+
+- New file: postcar_launch.sh — the PostCar sidecar bootstrap (clone-once, git-pull-self-updates, invoke postcar_check.py) extracted out of run.sh into its own Cat A file. Per product direction, PostCar files must stay separate from agent-owned files rather than being carved out with an exemption flag on a shared file. Since this is a brand-new filename, it is not in CAT_B_REQUIRE and needs no exemption -- it auto-applies like any other Cat A file, and all future PostCar bootstrap changes land here without ever touching run.sh again.
+- Also fixes a latent bug while extracting: run.sh's postcar_check.py invocation had no `|| true`, so under run.sh's `set -e` a postcar_check.py failure could have killed the whole watchdog -- contradicting the 2.10.18 changelog's stated intent that PostCar failures must be non-fatal. run.sh now invokes postcar_launch.sh as a whole with `|| true`, so nothing inside it can take the scheduler down.
+
+## v2.10.22 — 2026-07-02
+
+*Files:* run.sh
+
+
 ## v2.10.21 — 2026-07-02
 
 *Files:* scripts/validate_categories.py, kit_manifest.json
