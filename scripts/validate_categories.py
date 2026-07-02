@@ -12,6 +12,13 @@ The guard here is CAT_B_REQUIRE: files that MUST be Cat B because auto-applying 
 would overwrite agent-specific customisations that are their trading edge.
 If any of those files appear in a Cat 0 or Cat A entry, it's a mis-tag — reject it.
 
+Exception: PostCar (the self-installing comms sidecar) is platform-mandated infra,
+never agent customisation, and is meant to auto-apply with zero agent config — per
+product ruling, PostCar-only changes to a CAT_B_REQUIRE file (e.g. run.sh's bootstrap
+line) are legitimately Cat A. A changelog entry marks itself as such by setting
+"postcar_exempt": true; that flag is manually asserted by the kit author and is
+therefore auditable in the manifest diff, not inferred from content.
+
   validate_categories.py          exit 1 on any violation
 
 Stdlib-only (the kit ships no build deps).
@@ -58,7 +65,7 @@ def main() -> int:
         if cat not in VALID:
             errors.append(f"v{ver}: category {entry.get('category')!r} not in {sorted(VALID)}")
             continue
-        if cat in ("0", "A") and _vtuple(ver) >= MODEL_VERSION:
+        if cat in ("0", "A") and _vtuple(ver) >= MODEL_VERSION and not entry.get("postcar_exempt"):
             bad = [f for f in entry.get("files", []) if f.split("/")[0] in CAT_B_REQUIRE]
             if bad:
                 errors.append(

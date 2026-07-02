@@ -5,6 +5,11 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.21 — 2026-07-02
+
+*Files:* scripts/validate_categories.py, kit_manifest.json
+
+
 ## v2.10.20 — 2026-07-02
 
 *Files:* agent.py

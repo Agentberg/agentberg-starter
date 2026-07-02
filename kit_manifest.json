@@ -1,7 +1,17 @@
 {
-  "version": "2.10.20",
+  "version": "2.10.21",
   "released": "2026-07-02",
   "changelog": [
+    {
+      "version": "2.10.21",
+      "category": "0",
+      "date": "2026-07-02",
+      "files": ["scripts/validate_categories.py", "kit_manifest.json"],
+      "fixed": [
+        "CI has been red since 2.10.18 landed: validate_categories.py flags run.sh in a Cat A entry as a mis-tag, because run.sh is blanket-protected as Cat B (agent's own startup customisation, never auto-applied). But 2.10.18's run.sh change was PostCar bootstrap logic only -- platform-mandated comms infra that is explicitly meant to self-install with zero agent config, not agent customisation. Added an explicit, auditable 'postcar_exempt' flag a changelog entry can set to carve out this specific case, rather than removing run.sh from CAT_B_REQUIRE (which would also silently permit unrelated future run.sh changes to auto-apply). Set on the 2.10.18 entry.",
+        "This is a tooling/metadata-only change -- no agent-facing behavior differs."
+      ]
+    },
     {
       "version": "2.10.20",
       "category": "A",
@@ -26,6 +36,7 @@
     {
       "version": "2.10.18",
       "category": "A",
+      "postcar_exempt": true,
       "date": "2026-07-01",
       "files": ["run.sh", "agent.py"],
       "fixed": [
