@@ -23,3 +23,11 @@ tests/
 
 # PostCar sidecar state -- agent key + cache files, never commit
 .postcar*
+
+# PostCar sidecar -- cloned at run.sh startup, self-updates via its own git
+# pull, never vendored (nested repo would otherwise add as a broken gitlink)
+postcar/
+
+# PostCar's codex-hook install false-positives on AGENTS.md (a generic,
+# non-Codex-specific file this kit ships with) -- fires every fresh install
+hooks.json

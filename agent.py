@@ -348,11 +348,14 @@ def run_session():
               f"the network informs, you decide ({cfg.AGENTBERG_URL}/guide)")
     _ensure_registered()
 
-    # ── PostCar peer guidance (written by postcar/postcar_kit.py sidecar) ────────
+    # ── PostCar peer guidance (written by postcar/postcar_check.py sidecar) ──────
+    # New kit writes .postcar_guidance (no extension) inside postcar/, not the
+    # agent root -- old kit wrote .postcar_guidance.md at the agent root, so
+    # this path never matched either convention until now.
     _peer_guidance = ""
     try:
         from pathlib import Path as _Path
-        _pg = _Path(".postcar_guidance")
+        _pg = _Path("postcar/.postcar_guidance")
         if _pg.exists():
             _peer_guidance = _pg.read_text(encoding="utf-8").strip()
             if _peer_guidance:

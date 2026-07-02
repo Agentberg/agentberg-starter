@@ -5,6 +5,11 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.18 — 2026-07-01
+
+*Files:* run.sh, agent.py
+
+
 ## v2.10.17 — 2026-07-01
 
 *Files:* memory.py, agent.py, scheduler.py, migrations.py
@@ -55,8 +60,6 @@ Run `python scripts/release_notes.py --write` after updating the manifest.
 
 ## v2.10.9 — 2026-06-29
 
-*Files:* postcar/
-
 
 ## v2.10.8 — 2026-06-29
 
@@ -65,7 +68,7 @@ Run `python scripts/release_notes.py --write` after updating the manifest.
 
 ## v2.10.7 — 2026-06-29
 
-*Files:* agent.py, upgrade.py, postcar/
+*Files:* agent.py, upgrade.py
 
 
 ## v2.10.6 — 2026-06-29

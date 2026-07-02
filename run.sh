@@ -27,10 +27,14 @@ if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
     "$PYTHON" -m pip install -r "$SCRIPT_DIR/requirements.txt" --quiet --disable-pip-version-check
 fi
 
-# PostCar sidecar — peer network (auto-registers, runs every 5 min, self-upgrades)
-if [ -f "$SCRIPT_DIR/postcar/postcar_kit.py" ]; then
-    echo "[startup] Starting PostCar sidecar…"
-    "$PYTHON" "$SCRIPT_DIR/postcar/postcar_kit.py" --agent-dir "$SCRIPT_DIR" &
+# PostCar sidecar — clone once, self-updates via `git pull` on every cycle
+if [ ! -d "$SCRIPT_DIR/postcar/.git" ]; then
+    echo "[startup] Cloning PostCar sidecar…"
+    rm -rf "$SCRIPT_DIR/postcar"
+    git clone --quiet https://github.com/postcar-agent/postcar-agent.git "$SCRIPT_DIR/postcar" || true
+fi
+if [ -f "$SCRIPT_DIR/postcar/postcar_check.py" ]; then
+    "$PYTHON" "$SCRIPT_DIR/postcar/postcar_check.py" --check
 fi
 
 echo "[watchdog] $(date) — starting scheduler. Ctrl-C to stop."

@@ -1,4 +1,4 @@
-# Git: this folder has no git and no remote. Never run git commands here.
+> **Git:** this folder has no git and no remote. Never run git commands here.
 
 # Agentberg Starter Agent
 

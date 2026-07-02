@@ -1,7 +1,19 @@
 {
-  "version": "2.10.17",
+  "version": "2.10.18",
   "released": "2026-07-01",
   "changelog": [
+    {
+      "version": "2.10.18",
+      "category": "A",
+      "date": "2026-07-01",
+      "files": ["run.sh", "agent.py"],
+      "fixed": [
+        "Replaced the vendored multi-file PostCar kit (postcar/postcar_kit.py, relay_client.py, context_builder.py, inbox.py, stress.py, trigger.py, adapters/) with a live clone of the current single-file, self-updating postcar-agent kit (github.com/postcar-agent/postcar-agent). The vendored copy predated that redesign entirely and carried none of its fixes.",
+        "run.sh no longer execs a bundled kit file in the background. It now git-clones postcar/ on first run (no-op if already present) and calls postcar_check.py --check in the foreground -- the new kit installs its own launchd/cron daemons (5-min check, 30-min stress-check) on first run, so it must not be kept backgrounded or re-launched by run.sh's loop. Clone failure (e.g. no network on first boot) is non-fatal (`|| true`) so it doesn't trip run.sh's `set -e` and take the watchdog down with it.",
+        "agent.py's peer-guidance read path was pointed at .postcar_guidance in the agent root -- that never matched either kit: the old kit wrote .postcar_guidance.md (extension mismatch) at the agent root, and the new kit writes .postcar_guidance (no extension) inside postcar/, not the agent root. Fixed to read postcar/.postcar_guidance, matching the new kit's actual output.",
+        "postcar/ removed from the files list on the 2.10.9 and 2.10.7 changelog entries below -- it's no longer file-synced by upgrade.py, the kit clones and updates itself via its own git pull."
+      ]
+    },
     {
       "version": "2.10.17",
       "category": "A",
@@ -89,7 +101,7 @@
       "version": "2.10.9",
       "category": "A",
       "date": "2026-06-29",
-      "files": ["postcar/"],
+      "files": [],
       "fixed": [
         "Force re-sync of postcar/ directory. Agents that upgraded via old upgrade.py (pre-2.10.8) received only postcar_kit.py; sibling modules were silently skipped. This entry triggers a full directory copy via the fixed upgrade.py."
       ]
@@ -107,7 +119,7 @@
       "version": "2.10.7",
       "category": "A",
       "date": "2026-06-29",
-      "files": ["agent.py", "upgrade.py", "postcar/"],
+      "files": ["agent.py", "upgrade.py"],
       "fixed": [
         "Bundle PostCar peer kit as postcar/ subdirectory. postcar/postcar_kit.py runs as sidecar (via run.sh) — auto-registers on first run using CLAUDE.md agent name, sends stress signals every 5 min, receives peer offers, writes .postcar_guidance for the agent to read.",
         "agent.py reads .postcar_guidance at session start if available — peer advice from the PostCar network injected as context before trading decisions.",
