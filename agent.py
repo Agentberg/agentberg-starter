@@ -1316,6 +1316,52 @@ def run_session():
         sys.exit(0)
 
 
+_CLOSE_FAIL_COUNTS: dict[str, int] = {}
+_CLOSE_FAIL_ALERTED: set[str] = set()
+
+
+def _close_with_retry(key: str, close_fn, retries: int = 2, delay: float = 2.0):
+    """Retry a broker close call; escalate to the operator on repeated cross-cycle failure.
+
+    A bare try/except-and-continue around a close order leaves a stopped-out position
+    open indefinitely if the order keeps getting rejected (PDT rule, no buying power,
+    extended hours) — the failure sits in scheduler.log and nobody sees it. Retry
+    absorbs transient rejects; the cross-cycle counter catches the case where the
+    position simply won't close, and fires a critical support trap (visible in Slack
+    and the admin dashboard) instead of failing silently forever.
+    """
+    last_exc = None
+    for attempt in range(retries + 1):
+        try:
+            order = close_fn()
+            _CLOSE_FAIL_COUNTS.pop(key, None)
+            _CLOSE_FAIL_ALERTED.discard(key)
+            return order
+        except Exception as e:
+            last_exc = e
+            if attempt < retries:
+                time.sleep(delay)
+    _CLOSE_FAIL_COUNTS[key] = _CLOSE_FAIL_COUNTS.get(key, 0) + 1
+    fail_count = _CLOSE_FAIL_COUNTS[key]
+    if fail_count >= 3 and key not in _CLOSE_FAIL_ALERTED:
+        _CLOSE_FAIL_ALERTED.add(key)
+        try:
+            _agentberg.report_issue(
+                trap_name="STOP_LOSS_CLOSE_FAILURE",
+                concern=f"Position {key} has failed to close for {fail_count} consecutive "
+                        f"monitor cycles: {last_exc}",
+                severity="critical",
+                diagnostics={
+                    "symbol": key,
+                    "consecutive_failures": fail_count,
+                    "last_error": str(last_exc),
+                },
+            )
+        except Exception as report_exc:
+            print(f"[monitor] Failed to report close-failure issue for {key}: {report_exc}")
+    raise last_exc
+
+
 def check_positions():
     """
     Stop-loss and take-profit monitor. Called every 5 minutes by scheduler.
@@ -1367,7 +1413,10 @@ def check_positions():
         print(f"[monitor] {reason.upper()} SPREAD {trade['symbol']} ({long_sym}/{short_sym}): "
               f"net {net_pct:.1%} — closing both legs")
         try:
-            close_order = _alpaca.submit_option_spread_close(long_sym, short_sym, qty=qty, net_credit=net_credit)
+            close_order = _close_with_retry(
+                trade["symbol"],
+                lambda: _alpaca.submit_option_spread_close(long_sym, short_sym, qty=qty, net_credit=net_credit),
+            )
             exit_price = round((trade.get("entry_price") or 0) + net_pl_dollars / (mult * qty), 2)
             memory.record_trade_close(trade["id"], exit_price=exit_price, pnl=net_pl_dollars,
                                       pnl_pct=net_pct, exit_reason=reason,
@@ -1421,7 +1470,7 @@ def check_positions():
                               f"${current_price:.2f} below trail ${trail_stop:.2f} "
                               f"(HWM ${hwm:.2f}, up {unrealised_pnl_pct:.1%})")
                         try:
-                            close_order = _alpaca.close_position(symbol)
+                            close_order = _close_with_retry(symbol, lambda: _alpaca.close_position(symbol))
                             _record_close(symbol, "trailing_stop", unrealised_pnl_pct, close_order=close_order)
                         except Exception as e:
                             print(f"[monitor] Trailing stop close failed {symbol}: {e}")
@@ -1440,7 +1489,7 @@ def check_positions():
 
         print(f"[monitor] {reason.upper()} {symbol}: {unrealised_pnl_pct:.1%} — closing")
         try:
-            close_order = _alpaca.close_position(symbol)
+            close_order = _close_with_retry(symbol, lambda: _alpaca.close_position(symbol))
             _record_close(symbol, reason, unrealised_pnl_pct, close_order=close_order)
         except Exception as e:
             print(f"[monitor] Close failed {symbol}: {e}")

@@ -1,7 +1,18 @@
 {
-  "version": "2.10.19",
+  "version": "2.10.20",
   "released": "2026-07-02",
   "changelog": [
+    {
+      "version": "2.10.20",
+      "category": "A",
+      "date": "2026-07-02",
+      "files": ["agent.py"],
+      "fixed": [
+        "check_positions() (the stop-loss/take-profit/trailing-stop monitor, polled every 5 min by scheduler.py) wrapped every broker close call in a bare try/except that printed and moved on -- a rejected close order (PDT rule, no buying power, extended hours) left the stopped-out position open indefinitely, with the failure buried in scheduler.log and never surfaced anywhere else. Confirmed against live trade data: several closed trades showed pnl_pct far past their configured stop threshold (e.g. equity stop is 4%, one trade closed at -51%), consistent with a stop that failed to fire on the first attempts and only closed once conditions changed.",
+        "Added _close_with_retry(): retries a close call up to 2 extra times (2s apart) to absorb transient rejects, and tracks consecutive cross-cycle failures per symbol. After 3 consecutive monitor cycles where the same position still can't close, fires a critical severity trap via _agentberg.report_issue() (visible in Slack and the admin support dashboard) instead of silently retrying forever. Wired into all 3 close paths in check_positions(): spread close, trailing-stop close, and the regular stop-loss/take-profit close.",
+        "Stop-loss/take-profit threshold values themselves (EQUITY_STOP_LOSS_PCT, OPTION_STOP_LOSS_PCT, trailing distances) are unchanged -- those are agent-owned strategy parameters (Cat B, config.py), not touched by this fix. This only guarantees a triggered stop actually executes or gets escalated, not what the stop threshold should be."
+      ]
+    },
     {
       "version": "2.10.19",
       "category": "A",
