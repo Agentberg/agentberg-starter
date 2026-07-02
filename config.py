@@ -157,3 +157,68 @@ if _c:
     _incl = [x.strip().upper() for x in _c.get("must_include", []) if x.strip()]
     if _incl:
         WATCHLIST["Preferred"] = sorted(set(WATCHLIST.get("Preferred", []) + _incl))
+
+
+# ── Guidance overrides (learned, not hand-set) ──────────────────────────────────
+# Applied on top of the defaults + character overlay above — this is the agent's own
+# prior APPLY decision (from run_guidance_cycle()/evaluate_guidance() in agent.py, or
+# postcar peer guidance once it writes the same file shape), not a human edit and not
+# the network deciding for the agent. The network only informs; this file only exists
+# because the agent's own LLM already judged a specific change worth making — this
+# block is the one piece that makes that decision actually take effect, instead of
+# only landing in guidance_overrides.json as an audit trail nothing reads back.
+#
+# Safety: only applies to names that are ALREADY real config constants defined above
+# (an LLM-suggested "param" is a free-form guess, not guaranteed to match anything —
+# e.g. the guidance-eval prompt's own example, MOMENTUM_THRESHOLD, isn't a real
+# constant in this file). Unknown params are skipped and logged, never silently
+# created as new globals. Value is coerced to the current constant's type; a
+# coercion failure skips that one override rather than raising. Any error in this
+# whole block is swallowed — a malformed overrides file must never block startup.
+_OVERRIDES_FILE = os.path.join(os.path.dirname(__file__), "guidance_overrides.json")
+
+
+def _coerce_like(current, value):
+    if isinstance(current, bool):
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+    if isinstance(current, int):
+        return int(float(value))
+    if isinstance(current, float):
+        return float(value)
+    return value
+
+
+try:
+    import json as _json
+
+    with open(_OVERRIDES_FILE) as _f:
+        _applied = _json.load(_f).get("applied", [])
+
+    # Keep only the latest entry per param (a param may have been overridden more
+    # than once over time) — entries are appended in chronological order, so the
+    # last occurrence for a given param is the most recent.
+    _latest: dict[str, dict] = {}
+    for _entry in _applied:
+        _p = _entry.get("param")
+        if _p:
+            _latest[_p] = _entry
+
+    for _param, _entry in _latest.items():
+        if _param not in globals() or not _param.isupper():
+            print(f"    [guidance] skipping unknown override param: {_param}")
+            continue
+        _current = globals()[_param]
+        try:
+            _new_value = _coerce_like(_current, _entry.get("value"))
+        except (TypeError, ValueError):
+            print(f"    [guidance] skipping override {_param}: value doesn't match expected type")
+            continue
+        globals()[_param] = _new_value
+        print(f"    [guidance] applied override: {_param} {_current!r} -> {_new_value!r} "
+              f"({str(_entry.get('rationale', ''))[:60]})")
+except FileNotFoundError:
+    pass
+except Exception as _e:
+    print(f"    [guidance] overrides load failed, using defaults ({_e})")

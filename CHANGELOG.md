@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.24 — 2026-07-02
+
+*Files:* config.py
+
+- Guidance overrides now actually take effect. config.py reads guidance_overrides.json (written by agent.py's run_guidance_cycle()/_apply_guidance_changes() on an Agentberg-platform APPLY decision, and by any future postcar peer-guidance writer using the same file shape) and applies {param: value} on top of the defaults + character overlay above it. Previously this file was write-only -- nothing read it back, so even an agent's own already-made APPLY decision never changed a live trading parameter. Safety: only applies to names that are already real config constants (an LLM-suggested param is a free-form guess, not guaranteed to exist -- e.g. the guidance-eval prompt's own MOMENTUM_THRESHOLD example isn't a real constant in this file); value is coerced to match the existing constant's type; unknown params or type mismatches are skipped and logged, never silently created as new globals; any error in the whole block is swallowed so a malformed overrides file can never block agent startup.
+
 ## v2.10.23 — 2026-07-02
 
 *Files:* llm_providers/claude.py
