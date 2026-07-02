@@ -5,6 +5,16 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.25 — 2026-07-02
+
+*Files:* kit_autoupdate.py, upgrade.py, run.sh
+
+- New file: kit_autoupdate.py -- standalone 30-min self-upgrade check, independent of the trading scheduler. agent.py's own upgrade check (Step 9) only runs inside a live trading session, throttled to once/24h -- a crashed or idle scheduler silently freezes the kit version forever (confirmed real: an agent stuck on an old version with ~22h of heartbeat silence, auto-upgrade never ran because nothing triggered it). Cheap by design: fetches only kit_manifest.json (a few KB) each cycle; the full download + apply (upgrade.py) only runs when a newer Cat 0/A version is actually available.
+- upgrade.py now installs kit_autoupdate.py's daemon automatically at the end of a successful manual upgrade -- anyone running `python3 upgrade.py` by hand gets the 30-min self-check wired up in the same run, no separate step.
+- run.sh installs the daemon on fresh clones too (one-time idempotent call, same as the existing postcar_launch.sh pattern -- lives in its own file so future kit_autoupdate.py changes never require touching run.sh again).
+- IMPORTANT scope limit: files in upgrade.py's CAT_B_PROTECT set (risk.py, config.py, identity.py, character.py, alpaca.py, structures.py, setup.py, run.sh) are still never auto-applied by upgrade.py regardless of check frequency or changelog category -- that guard is deliberate (never silently overwrite an operator's trading edge or launch script) and this change does not bypass it. A faster check interval speeds up propagation of every OTHER file; postcar (run.sh) and the guidance-overrides reader (config.py, v2.10.24) still require a one-time manual `python3 upgrade.py` or re-run of setup on already-installed agents.
+- Daemon install is idempotent and gated on a sentinel file, never unloads/reloads an already-installed launchd job -- this exact mistake caused a real outage on 2026-07-01 (postcar's own --check job was deregistered on 3 agents by a redundant reload tripping macOS's background-task-management throttle); this script was built to avoid repeating it.
+
 ## v2.10.24 — 2026-07-02
 
 *Files:* config.py

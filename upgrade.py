@@ -346,6 +346,22 @@ def main(no_restart: bool = False) -> None:
         print(f"\n  Done. Now at v{latest}.")
         print(f"  Backup saved at: {backup}")
 
+        # kit_autoupdate.py is a brand-new filename (not in CAT_B_PROTECT), so
+        # it just got copied into `applied` above like any other Cat 0/A file.
+        # Installing its daemon here means anyone running this upgrade
+        # manually gets the 30-min self-check wired up in the same run, no
+        # separate step -- rides whatever upgrade wave is already happening.
+        autoupdate_script = folder / "kit_autoupdate.py"
+        if autoupdate_script.is_file():
+            try:
+                import subprocess
+                subprocess.run(
+                    [sys.executable, str(autoupdate_script), "--install-daemon"],
+                    cwd=str(folder), capture_output=True, text=True, timeout=30,
+                )
+            except Exception as e:
+                print(f"  kit_autoupdate daemon install skipped ({e})")
+
         if applied and not no_restart:
             print()
             _restart_scheduler(folder)

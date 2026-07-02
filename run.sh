@@ -31,6 +31,12 @@ fi
 # so PostCar changes never require touching this file (Cat B, agent-owned).
 bash "$SCRIPT_DIR/postcar_launch.sh" || true
 
+# Kit self-upgrade daemon — 30-min standalone check, independent of whether
+# the scheduler below is even running. One-time idempotent install; lives in
+# its own file so future changes to it don't require touching this file
+# either (same pattern as postcar_launch.sh above).
+"$PYTHON" "$SCRIPT_DIR/kit_autoupdate.py" --install-daemon || true
+
 echo "[watchdog] $(date) — starting scheduler. Ctrl-C to stop."
 
 while true; do
