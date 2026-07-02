@@ -1,7 +1,16 @@
 {
-  "version": "2.10.22",
+  "version": "2.10.23",
   "released": "2026-07-02",
   "changelog": [
+    {
+      "version": "2.10.23",
+      "category": "A",
+      "date": "2026-07-02",
+      "files": ["llm_providers/claude.py"],
+      "added": [
+        "Perf fix: llm_providers/claude.py's run() now passes --tools none to the claude CLI. All 5 call sites in llm.py (candidate scoring, L1 stance, L2 rank, L3 trade decision, guidance eval) are pure JSON-in/JSON-out prompts that never invoke Bash/Read/file tools -- loading their schemas was pure overhead. Same fix already proven in postcar_check.py's _LLM_MINIMAL_TOOLS_ARGS (measured ~87% cache-read / ~44% cost reduction, no output-quality change). Applies to every agent on the claude adapter, every scan cycle."
+      ]
+    },
     {
       "version": "2.10.22",
       "category": "A",

@@ -16,8 +16,13 @@ def available() -> bool:
 
 
 def run(prompt: str) -> str:
+    # --tools none: every call here is a JSON-in/JSON-out classification/scoring
+    # prompt (candidate scoring, stance, ranking, trade decision, guidance eval) —
+    # the model never invokes Bash/Read/file tools, so loading their schemas is
+    # pure overhead. Measured ~87% cache-read / ~44% cost reduction with no
+    # output-quality change (postcar_check.py's own _LLM_MINIMAL_TOOLS_ARGS).
     proc = subprocess.run(
-        [find_cli("claude", "CLAUDE_BIN"), "-p", "-"], input=prompt,
+        [find_cli("claude", "CLAUDE_BIN"), "-p", "-", "--tools", "none"], input=prompt,
         capture_output=True, text=True, timeout=60,
     )
     if proc.returncode != 0:

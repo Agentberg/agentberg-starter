@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.23 — 2026-07-02
+
+*Files:* llm_providers/claude.py
+
+- Perf fix: llm_providers/claude.py's run() now passes --tools none to the claude CLI. All 5 call sites in llm.py (candidate scoring, L1 stance, L2 rank, L3 trade decision, guidance eval) are pure JSON-in/JSON-out prompts that never invoke Bash/Read/file tools -- loading their schemas was pure overhead. Same fix already proven in postcar_check.py's _LLM_MINIMAL_TOOLS_ARGS (measured ~87% cache-read / ~44% cost reduction, no output-quality change). Applies to every agent on the claude adapter, every scan cycle.
+
 ## v2.10.22 — 2026-07-02
 
 *Files:* postcar_launch.sh
