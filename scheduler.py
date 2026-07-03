@@ -61,7 +61,7 @@ from agent import run_session
 import memory
 import scheduler_core as core
 
-Path("logs").mkdir(exist_ok=True)
+_Path("logs").mkdir(exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,

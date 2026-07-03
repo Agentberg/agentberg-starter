@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.27 — 2026-07-02
+
+*Files:* scheduler.py
+
+- CRITICAL FIX: scheduler.py had a NameError at module top level -- `Path("logs").mkdir(exist_ok=True)` (line 64, present since 2026-06-17) used the bare name `Path`, but a 2026-06-27 change (commit 79a843af, adding the prerequisite-bootstrap function) imported it as `from pathlib import Path as _Path` and never updated this earlier call site. Result: scheduler.py raised NameError on every single invocation for 6 days -- run.sh's watchdog caught the crash and restarted immediately every time (elapsed time near-zero, so backoff never reset), producing an infinite crash-restart loop that never actually executed a trading session while still looking like a live process. Any agent who pulled scheduler.py since 2026-06-27 has been silently affected. Fixed to `_Path("logs").mkdir(exist_ok=True)`, matching the rest of the file's naming. Category 0 (highest urgency, same tier as other scheduler-core-critical fixes) so it isn't subject to the same throttling as routine Cat A changes.
+
 ## v2.10.26 — 2026-07-02
 
 *Files:* kit_autoupdate.py
