@@ -25,18 +25,58 @@ already-installed agent automatically -- those still need a one-time manual
 
 Install the recurring check:  python3 kit_autoupdate.py --install-daemon
 Run a single check manually:  python3 kit_autoupdate.py --check
+Force config.py/risk.py sync right now (no daemon needed): python3 kit_autoupdate.py --force-sync
+
+To enable the config.py/risk.py force-sync diagnostic on this agent, add to .env:
+    AGENTBERG_FORCE_SYNC_CONFIG=true
+Remove that line (or set to false) to go back to normal Cat B protection.
 """
 
+import hashlib
 import json
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).parent
 MANIFEST_URL = "https://raw.githubusercontent.com/Agentberg/agentberg-starter/main/kit_manifest.json"
+RAW_BASE = "https://raw.githubusercontent.com/Agentberg/agentberg-starter/main"
 CHECK_INTERVAL_SECONDS = 1800  # 30 min
+
+# Diagnostic-only, opt-in: force config.py + risk.py to byte-match upstream
+# `main` every cycle, regardless of version/category -- used to rule out
+# config/logic divergence as a cause of fleet-wide underperformance. OFF by
+# default for every kit user; only agents with AGENTBERG_FORCE_SYNC_CONFIG=true
+# in their .env do this. Deliberately bypasses upgrade.py's CAT_B_PROTECT
+# guard for just these two files -- character.json-driven personalization is
+# untouched (a separate file, re-applied by config.py's own overlay logic on
+# every run), but any hand-edit made directly to config.py/risk.py source
+# outside of character.json gets silently overwritten every 30 min while this
+# is on. Meant to be temporary -- turn it back off once config is ruled out
+# (or ruled in) as a cause.
+FORCE_SYNC_FILES = ("config.py", "risk.py")
+
+
+def _load_env() -> None:
+    """Minimal .env loader, no python-dotenv dependency -- same approach
+    upgrade.py already uses. This script is invoked standalone by
+    launchd/cron, which does not source .env the way the main agent process
+    (via python-dotenv in config.py) does, so AGENTBERG_FORCE_SYNC_CONFIG
+    would silently never be seen without this. Never overwrites a variable
+    already set in the real process environment."""
+    env_file = HERE / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k, v = k.strip(), v.strip().strip('"').strip("'")
+        os.environ.setdefault(k, v)
 
 
 def _vtuple(v: str) -> tuple:
@@ -63,7 +103,41 @@ def _remote_version() -> str | None:
         return None
 
 
+def _sha256_bytes(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+def force_sync_config() -> None:
+    """Unconditionally overwrite config.py/risk.py with the current upstream
+    `main` content, independent of version comparison -- runs every cycle
+    this is enabled, not just when a new kit version happens to touch these
+    files. Backs up the previous local copy (timestamped) before overwriting
+    so nothing is unrecoverable if this needs to be reverted per-agent."""
+    if os.environ.get("AGENTBERG_FORCE_SYNC_CONFIG", "").strip().lower() != "true":
+        return
+    for rel in FORCE_SYNC_FILES:
+        local_path = HERE / rel
+        try:
+            req = urllib.request.Request(f"{RAW_BASE}/{rel}", headers={"User-Agent": "agentberg-kit-autoupdate"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                upstream = r.read()
+        except Exception as e:
+            print(f"[kit-autoupdate] force-sync fetch failed for {rel}: {e}")
+            continue
+        local_hash = _sha256_bytes(local_path.read_bytes()) if local_path.exists() else None
+        if local_hash == _sha256_bytes(upstream):
+            continue
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        if local_path.exists():
+            backup_path = HERE / f"{rel}.pre-forcesync-{ts}.bak"
+            backup_path.write_bytes(local_path.read_bytes())
+        local_path.write_bytes(upstream)
+        print(f"[kit-autoupdate] force-synced {rel} to upstream main (backup: {rel}.pre-forcesync-{ts}.bak)")
+
+
 def check_and_apply() -> None:
+    force_sync_config()
+
     local = _local_version()
     remote = _remote_version()
     if remote is None:
@@ -161,9 +235,12 @@ def install_daemon() -> None:
 
 
 if __name__ == "__main__":
+    _load_env()
     if len(sys.argv) >= 2 and sys.argv[1] == "--install-daemon":
         install_daemon()
     elif len(sys.argv) >= 2 and sys.argv[1] == "--check":
         check_and_apply()
+    elif len(sys.argv) >= 2 and sys.argv[1] == "--force-sync":
+        force_sync_config()
     else:
-        print("Usage: python3 kit_autoupdate.py --install-daemon | --check")
+        print("Usage: python3 kit_autoupdate.py --install-daemon | --check | --force-sync")

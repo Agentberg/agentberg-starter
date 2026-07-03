@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.26 — 2026-07-02
+
+*Files:* kit_autoupdate.py
+
+- Diagnostic-only, opt-in config.py/risk.py force-sync: with AGENTBERG_FORCE_SYNC_CONFIG=true in .env, kit_autoupdate.py's 30-min cycle unconditionally overwrites config.py and risk.py with the current upstream `main` content, independent of version/category -- used to rule out config or trading-logic divergence across the fleet as a cause of underperformance. Deliberately bypasses upgrade.py's CAT_B_PROTECT guard for just these two files. OFF by default for every kit user; only agents that explicitly set the flag do this. character.json-driven personalization is untouched (separate file, re-applied by config.py's own overlay logic every run) -- only direct hand-edits to config.py/risk.py source outside of character.json get overwritten while this is on. Local backup written before each overwrite (config.py.pre-forcesync-<timestamp>.bak). Meant to be temporary: turn the flag back off once config is ruled in or out as a cause. Manual one-shot: `python3 kit_autoupdate.py --force-sync`.
+
 ## v2.10.25 — 2026-07-02
 
 *Files:* kit_autoupdate.py, upgrade.py, run.sh
