@@ -1,13 +1,10 @@
 """
-scheduler.py — Trading session schedule (Cat B — agent customises this file).
+scheduler.py — the main loop: fires sessions on schedule, heartbeat, holiday/
+weekend detection, crash recovery. Structural mechanism with zero human-set
+values -- Cat 0/A, updates freely with the kit.
 
-CUSTOMISE HERE:
-  SESSION_TIMES        — when sessions fire each trading day
-  MONITOR_INTERVAL_SECS — how often positions are checked
-  MARKET_OPEN/CLOSE    — market hours definition
-
-Infrastructure (holidays, heartbeat, upgrades) lives in scheduler_core.py (Cat 0)
-and auto-updates with the kit. This file only restarts when you review and apply it.
+Your own schedule (when sessions fire, market hours, position-check cadence)
+lives in schedule_config.py (Cat B) -- edit that file, not this one.
 
 Run:
   python scheduler.py
@@ -60,6 +57,7 @@ import time
 from agent import run_session
 import memory
 import scheduler_core as core
+from schedule_config import SESSION_TIMES, MONITOR_INTERVAL_SECS, MARKET_OPEN, MARKET_CLOSE
 
 _Path("logs").mkdir(exist_ok=True)
 
@@ -74,17 +72,11 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ── AGENT CUSTOMISATION SURFACE ─────────────────────────────────────────────────
-
-SESSION_TIMES = [
-    datetime.time(9, 35),    # morning — after opening volatility
-    datetime.time(12, 0),    # midday  — lunch-hour momentum
-    datetime.time(15, 50),   # close   — before EOD
-]
-
-MONITOR_INTERVAL_SECS = 300   # position check cadence (seconds)
-MARKET_OPEN  = datetime.time(9, 30)
-MARKET_CLOSE = datetime.time(16, 0)
+# How often heartbeat fires during a long idle wait (holiday/weekend, or the
+# gap between sessions) -- independent of MONITOR_INTERVAL_SECS, which is only
+# for in-session position checks. Infrastructure, not agent customisation --
+# lives here, not in schedule_config.py.
+HEARTBEAT_IDLE_INTERVAL_SECS = 3600
 
 # ── Internal helpers ────────────────────────────────────────────────────────────
 
@@ -122,6 +114,23 @@ def _should_run_session(label: str, last_ran: dict) -> bool:
 def _mark_ran(label: str, last_ran: dict) -> None:
     last_ran[label] = core.now_et().date().isoformat()
     core.save_state(last_ran)
+
+
+def _sleep_with_heartbeat(total_seconds: float) -> None:
+    """Sleep in chunks, sending a heartbeat between each -- not one giant blocking
+    time.sleep(). A holiday/long-weekend wait can span 70+ hours; without this, the
+    network's last_seen_at goes dark for the entire wait (network heartbeat only
+    otherwise fires from the finally: block after a trading session actually runs,
+    which never happens on a holiday). This is heartbeat only -- it does not call
+    auto_upgrade_check or anything upgrade-related; that stays exactly where it is,
+    checked once at startup before the main loop begins."""
+    remaining = total_seconds
+    while remaining > 0:
+        chunk = min(HEARTBEAT_IDLE_INTERVAL_SECS, remaining)
+        time.sleep(chunk)
+        remaining -= chunk
+        core.write_heartbeat()
+        core.send_network_heartbeat()
 
 
 def run_monitor() -> None:
@@ -173,8 +182,9 @@ def _main_loop() -> None:
 
             if now.weekday() >= 5 or core.is_market_holiday(now):
                 wait = max(60, _seconds_until(SESSION_TIMES[0]) - 1800)
-                log.info(f"Market closed (holiday/weekend) — sleeping {wait/3600:.1f}h")
-                time.sleep(wait)
+                log.info(f"Market closed (holiday/weekend) — sleeping {wait/3600:.1f}h "
+                         f"(heartbeat every {HEARTBEAT_IDLE_INTERVAL_SECS/3600:.1f}h)")
+                _sleep_with_heartbeat(wait)
                 continue
 
             for session_time in SESSION_TIMES:
@@ -217,7 +227,7 @@ def _main_loop() -> None:
                 wait = _seconds_until(next_t if next_t else SESSION_TIMES[0]) - 1800
                 wait = max(60, wait)
                 log.info(f"Market closed — sleeping {wait/3600:.1f}h")
-                time.sleep(wait)
+                _sleep_with_heartbeat(wait)
 
         except Exception as e:
             log.error(

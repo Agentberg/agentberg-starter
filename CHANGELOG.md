@@ -5,6 +5,13 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.35 — 2026-07-03
+
+*Files:* scheduler.py, schedule_config.py
+
+- Fixed network heartbeat going silent for the entire holiday/weekend sleep window (up to 70+ hours) -- send_network_heartbeat() only fired from the finally: block after a trading session actually ran, and that whole path is skipped via `continue` on a holiday. A perfectly healthy idle agent was indistinguishable from a dead one on the dashboard for the full sleep. Fix: added _sleep_with_heartbeat(), which chunks any long wait (holiday/weekend, or the gap between sessions) into HEARTBEAT_IDLE_INTERVAL_SECS (1h) pieces, sending a heartbeat after each -- independent of whether a session fires. Does not touch auto_upgrade_check or anything upgrade-related, which stays exactly where it was, checked once at startup. Verified in isolation: a 77.6h wait produces 78 heartbeats spaced hourly with zero drift in total sleep time; a 45-min same-day gap sends exactly one heartbeat, no spam.
+- Split scheduler.py's own 'agent customisation surface' (SESSION_TIMES, MONITOR_INTERVAL_SECS, MARKET_OPEN/CLOSE) out into a new schedule_config.py, for the same reason config.py was split into risk_params.py in v2.10.30: scheduler.py itself is Cat 0/A (not in CAT_B_PROTECT), so those human-set values were exposed to being silently overwritten by a future kit upgrade. schedule_config.py is now Cat B protected; scheduler.py imports from it, same pattern as config.py importing risk_params.py.
+
 ## v2.10.34 — 2026-07-03
 
 *Files:* upgrade.py

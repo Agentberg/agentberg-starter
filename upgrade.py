@@ -40,14 +40,18 @@ KIT_URL = (
 )
 
 # These files are NEVER auto-applied — they hold the human-set variables (what to
-# trade, how much, the limits), not kit logic. Everything else -- risk.py, config.py,
-# identity.py, character.py, alpaca.py, structures.py, setup.py, run.sh, agent.py --
-# is structural mechanism with zero human-set values inside the code itself, and is
-# Cat 0/A eligible so the platform can iterate fast. risk_params.py is the one file
-# that holds actual numbers; character.json/capabilities.json are the data files a
-# human/agent writes into directly (not the .py code that reads them).
+# trade, how much, the limits, when to run), not kit logic. Everything else -- risk.py,
+# config.py, identity.py, character.py, alpaca.py, structures.py, setup.py, run.sh,
+# agent.py, scheduler.py -- is structural mechanism with zero human-set values inside
+# the code itself, and is Cat 0/A eligible so the platform can iterate fast.
+# risk_params.py holds the trading numbers; schedule_config.py holds session times /
+# market hours (scheduler.py's own former "agent customisation surface" -- split out
+# for the same reason risk_params.py was: the mechanism file needs to stay Cat 0/A
+# without silently overwriting the values inside it); character.json/capabilities.json
+# are the data files a human/agent writes into directly (not the .py code that reads
+# them).
 CAT_B_PROTECT = frozenset({
-    "risk_params.py", "character.json", "capabilities.json",
+    "risk_params.py", "schedule_config.py", "character.json", "capabilities.json",
 })
 
 # CLI / dev / packaging — never go into agent folders.
