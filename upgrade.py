@@ -92,6 +92,18 @@ def _folder_version(folder: Path) -> str:
         return "0.0.0"
 
 
+def _dir_identical(a: Path, b: Path) -> bool:
+    """True if directories a and b contain the exact same relative files with the
+    exact same content. Needed because the apply loop now runs every invocation
+    (not just on a version bump) -- without this, a listed directory would get
+    rmtree+copytree'd on every single tick forever, never settling to no-op."""
+    if not a.is_dir() or not b.is_dir():
+        return False
+    a_files = {p.relative_to(a).as_posix(): _sha256(p) for p in sorted(a.rglob("*")) if p.is_file()}
+    b_files = {p.relative_to(b).as_posix(): _sha256(p) for p in sorted(b.rglob("*")) if p.is_file()}
+    return a_files == b_files
+
+
 def _file_hashes(folder: Path) -> dict:
     hashes = {}
     for p in sorted(folder.rglob("*")):
@@ -103,27 +115,6 @@ def _file_hashes(folder: Path) -> dict:
             continue
         hashes[rel] = _sha256(p)
     return hashes
-
-
-def _read_cat_b_protect(script_path: Path) -> frozenset:
-    """Parse CAT_B_PROTECT out of a fetched upgrade.py without executing it (the file
-    is about to be trusted and copied in anyway, but we don't need to run its top-level
-    code just to read one constant -- ast.literal_eval on the frozenset({...}) literal
-    is enough). Falls back to our own current set if the file is missing or the shape
-    doesn't match (conservative: never less protective than what we already know)."""
-    import ast
-    try:
-        tree = ast.parse(script_path.read_text())
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.Assign)
-                    and any(isinstance(t, ast.Name) and t.id == "CAT_B_PROTECT" for t in node.targets)):
-                continue
-            v = node.value
-            if isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "frozenset" and v.args:
-                return frozenset(ast.literal_eval(v.args[0]))
-    except Exception:
-        pass
-    return CAT_B_PROTECT
 
 
 def _pending(manifest: dict, adopted_ver: str) -> list:
@@ -478,52 +469,44 @@ def _do_upgrade(folder: Path, no_restart: bool = False) -> None:
             sys.exit("  ERROR: Could not read manifest from downloaded kit.")
 
         latest = new_manifest.get("version", "0.0.0")
-        if _vtuple(latest) <= _vtuple(adopted["version"]):
-            print(f"  Already up to date (v{adopted['version']}).")
-            _bootstrap_postcar(folder)  # self-heal even when kit is already current
-            return
-
         from_version = adopted["version"]
-        print(f"  Upgrade: v{from_version} → v{latest}")
 
-        all_pending   = _pending(new_manifest, from_version)
-        auto_entries  = [e for e in all_pending if str(e.get("category")) in ("0", "A")]
-        manual_entries = [e for e in all_pending if str(e.get("category")) not in ("0", "A")]
+        # Cat 0/A files are checked for drift on EVERY run -- the full changelog
+        # history, not just entries newer than `adopted["version"]` -- and using
+        # THIS (currently executing) script's own CAT_B_PROTECT, not the fetched
+        # one. Gating this behind a version-number delta was the bug: once
+        # adopted["version"] reaches `latest`, nothing would ever look at these
+        # files again, so a file de-protected by an update already applied (e.g.
+        # config.py in v2.10.30) could get stuck forever if the run that applied it
+        # happened to be an old script with stale protect-rules -- there is no
+        # "next cycle" that re-examines a version already marked adopted. Since
+        # this apply pass is idempotent (skips anything whose hash already
+        # matches), running it unconditionally costs nothing extra once in sync,
+        # and guarantees whatever script version is actually running right now
+        # gets to make its own current call, every time, with no dependency on
+        # version bookkeeping or on which script initiated a past run.
+        all_auto_entries = sorted(
+            (e for e in new_manifest.get("changelog", []) if str(e.get("category")) in ("0", "A")),
+            key=lambda e: _vtuple(e.get("version", "0")),
+        )
+        manual_entries = [e for e in _pending(new_manifest, from_version)
+                          if str(e.get("category")) not in ("0", "A")]
 
-        print(f"  Auto (Cat 0/A): {len(auto_entries)} release(s)")
-        print(f"  Manual (Cat B/C — your logic, untouched): {len(manual_entries)} release(s)\n")
-
-        # De-duped file list from all auto entries
         seen, files_auto = set(), []
-        for e in auto_entries:
+        for e in all_auto_entries:
             for rel in e.get("files", []):
                 if rel not in seen:
                     files_auto.append(rel)
                     seen.add(rel)
 
-        # Snapshot before touching anything
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        backup = folder.parent / f"{folder.name}-backup-{ts}"
-        print(f"  Creating backup → {backup.name}")
-        shutil.copytree(str(folder), str(backup))
-
-        # Use the JUST-FETCHED script's own CAT_B_PROTECT, not this (old, currently-
-        # running) script's in-memory constant. Using the stale set here was the bug:
-        # a file de-protected by the very entries this run applies (e.g. config.py in
-        # v2.10.30) would be skipped under old rules, then adopted["version"] jumps to
-        # `latest` anyway -- so the promised "next cycle" never actually re-examines
-        # it, since the version check above short-circuits before it ever comes due.
-        # We already trust this HTTPS-fetched source enough to copy its code in below;
-        # trusting its protect-set declaration too closes the gap within this one run.
-        effective_protect = _read_cat_b_protect(newdir / "upgrade.py")
-
-        # Apply
-        applied, protected = [], []
+        # Dry pass first: what would actually change? Skip backup/apply entirely if
+        # nothing would -- keeps the common no-op daemon tick cheap and quiet.
+        to_apply, protected = [], []
         for rel in files_auto:
             top = rel.split("/")[0]
             if top in SCAFFOLD_EXCLUDE:
                 continue
-            if top in effective_protect:
+            if top in CAT_B_PROTECT:
                 # Protected means "never overwrite YOUR existing values" -- it does
                 # not mean "never create." An agent upgrading from before this file
                 # existed (e.g. risk_params.py introduced in v2.10.30) still needs
@@ -535,16 +518,53 @@ def _do_upgrade(folder: Path, no_restart: bool = False) -> None:
             src = newdir / rel.rstrip("/")
             if src.is_dir():
                 dest_dir = folder / rel.rstrip("/")
-                if dest_dir.exists():
-                    shutil.rmtree(str(dest_dir))
-                shutil.copytree(str(src), str(dest_dir))
-                applied.append(rel)
+                if _dir_identical(dest_dir, src):
+                    continue  # already identical
+                to_apply.append(rel)
                 continue
             if not src.is_file():
                 continue
             cur = folder / rel
             if cur.exists() and _sha256(cur) == _sha256(src):
                 continue  # already identical
+            to_apply.append(rel)
+
+        if not to_apply:
+            if _vtuple(latest) > _vtuple(from_version):
+                adopted["version"] = latest
+                _save_adopted(folder, adopted)
+                shutil.copy2(str(newdir / "kit_manifest.json"), str(folder / "kit_manifest.json"))
+            print(f"  Up to date (v{latest}) — no drift.")
+            _bootstrap_postcar(folder)  # self-heal even when kit is already current
+            _install_kit_autoupdate_daemon(folder)
+            return
+
+        if _vtuple(latest) > _vtuple(from_version):
+            print(f"  Upgrade: v{from_version} → v{latest}")
+        else:
+            print(f"  Already at v{latest} — {len(to_apply)} file(s) out of sync, reconciling…")
+        if manual_entries:
+            print(f"  Manual (Cat B/C — your logic, untouched): {len(manual_entries)} new release(s)\n")
+        else:
+            print()
+
+        # Snapshot before touching anything
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        backup = folder.parent / f"{folder.name}-backup-{ts}"
+        print(f"  Creating backup → {backup.name}")
+        shutil.copytree(str(folder), str(backup))
+
+        applied = []
+        for rel in to_apply:
+            src = newdir / rel.rstrip("/")
+            if src.is_dir():
+                dest_dir = folder / rel.rstrip("/")
+                if dest_dir.exists():
+                    shutil.rmtree(str(dest_dir))
+                shutil.copytree(str(src), str(dest_dir))
+                applied.append(rel)
+                continue
+            cur = folder / rel
             cur.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(src), str(cur))
             if src.stat().st_mode & 0o111:  # preserve the executable bit
@@ -561,12 +581,9 @@ def _do_upgrade(folder: Path, no_restart: bool = False) -> None:
         adopted["version"] = latest
         _save_adopted(folder, adopted)
 
-        if applied:
-            print(f"\n  Applied {len(applied)} file(s):")
-            for rel in applied:
-                print(f"    + {rel}")
-        else:
-            print("\n  All Cat 0/A files already up to date.")
+        print(f"\n  Applied {len(applied)} file(s):")
+        for rel in applied:
+            print(f"    + {rel}")
 
         if protected:
             print(f"\n  Protected (your alpha — untouched):")
