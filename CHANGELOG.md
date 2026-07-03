@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.34 — 2026-07-03
+
+*Files:* upgrade.py
+
+- Fixed a real convergence bug in v2.10.33's CAT_B_PROTECT redefinition, found via a live cross-version dry run (v2.10.28 -> v2.10.33): the apply loop protected/skipped files using THIS (old, currently-running) script's in-memory CAT_B_PROTECT constant, not the just-fetched new script's -- so config.py, de-protected by this very update, got skipped under stale rules. adopted["version"] then jumped straight to `latest` regardless of what was actually skipped, so the promised 'next daemon cycle reconciles it' never happened: the version check short-circuits to 'already up to date' before config.py is ever re-examined. Reproduced end-to-end (seeded a real v2.10.28 folder, ran the upgrade, diffed config.py against the target -- confirmed permanently stuck with adopted.version already reading 2.10.33). Fix: read CAT_B_PROTECT from the freshly-fetched upgrade.py via ast-parsing (no code execution) and use that as the effective protect-set for the whole apply pass, instead of the stale module-level constant. We already trust this HTTPS-fetched source enough to copy its code in; trusting its protect-set declaration too closes the gap within one run instead of a cycle that never actually arrives. Re-verified the same v2.10.28->2.10.34 jump end-to-end: config.py now converges byte-identical to the target in a single pass.
+
 ## v2.10.33 — 2026-07-03
 
 *Files:* upgrade.py

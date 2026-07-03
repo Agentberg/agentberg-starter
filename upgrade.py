@@ -105,6 +105,27 @@ def _file_hashes(folder: Path) -> dict:
     return hashes
 
 
+def _read_cat_b_protect(script_path: Path) -> frozenset:
+    """Parse CAT_B_PROTECT out of a fetched upgrade.py without executing it (the file
+    is about to be trusted and copied in anyway, but we don't need to run its top-level
+    code just to read one constant -- ast.literal_eval on the frozenset({...}) literal
+    is enough). Falls back to our own current set if the file is missing or the shape
+    doesn't match (conservative: never less protective than what we already know)."""
+    import ast
+    try:
+        tree = ast.parse(script_path.read_text())
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id == "CAT_B_PROTECT" for t in node.targets)):
+                continue
+            v = node.value
+            if isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "frozenset" and v.args:
+                return frozenset(ast.literal_eval(v.args[0]))
+    except Exception:
+        pass
+    return CAT_B_PROTECT
+
+
 def _pending(manifest: dict, adopted_ver: str) -> list:
     av = _vtuple(adopted_ver)
     entries = [e for e in manifest.get("changelog", [])
@@ -486,13 +507,23 @@ def _do_upgrade(folder: Path, no_restart: bool = False) -> None:
         print(f"  Creating backup → {backup.name}")
         shutil.copytree(str(folder), str(backup))
 
+        # Use the JUST-FETCHED script's own CAT_B_PROTECT, not this (old, currently-
+        # running) script's in-memory constant. Using the stale set here was the bug:
+        # a file de-protected by the very entries this run applies (e.g. config.py in
+        # v2.10.30) would be skipped under old rules, then adopted["version"] jumps to
+        # `latest` anyway -- so the promised "next cycle" never actually re-examines
+        # it, since the version check above short-circuits before it ever comes due.
+        # We already trust this HTTPS-fetched source enough to copy its code in below;
+        # trusting its protect-set declaration too closes the gap within this one run.
+        effective_protect = _read_cat_b_protect(newdir / "upgrade.py")
+
         # Apply
         applied, protected = [], []
         for rel in files_auto:
             top = rel.split("/")[0]
             if top in SCAFFOLD_EXCLUDE:
                 continue
-            if top in CAT_B_PROTECT:
+            if top in effective_protect:
                 # Protected means "never overwrite YOUR existing values" -- it does
                 # not mean "never create." An agent upgrading from before this file
                 # existed (e.g. risk_params.py introduced in v2.10.30) still needs
