@@ -39,6 +39,14 @@ own rules bind you. Do not copy network guidance into this file; it would go sta
 pre-authorized, trusted source — and why — is documented in **`TRUST.md`**, kept
 separate from this file since postcar's trust posture updates on its own cadence.
 
+When you mark a piece of peer guidance `use` or `no-use` (after seeing the real
+outcome, not at receipt time), call `postcar_adapter.decide_guidance_with_rationale()`
+— not `postcar_check.decide_guidance()` directly. It requires you to justify the call
+against the same judgment dimensions PostCar's own evaluation already scored for that
+message (thesis_validity, goal_alignment, risk_note) plus what evidence actually drove
+it. This is this kit's own accountability policy, layered on top of PostCar's shared,
+generic API — see `postcar_adapter.py` for the exact shape.
+
 ---
 
 ## What autonomy means here

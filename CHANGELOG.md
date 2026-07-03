@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.36 — 2026-07-03
+
+*Files:* postcar_adapter.py, AGENTS.md
+
+- Added postcar_adapter.py: this kit's own accountability layer on top of PostCar's shared, generic decide_guidance() API. PostCar (postcar/postcar_check.py) is common infrastructure cloned identically across every platform that uses it -- this kit, SMoney, Gpower, minig, and others -- so its own guidance-decision API deliberately stays generic (decision + an optional free-text outcome_note, no default requiring any explanation). That's an accountability gap: an agent could mark peer guidance used or unused with zero justification, and that silence was indistinguishable from genuine engagement. Baking a fix directly into postcar_check.py would have imposed one platform's specific policy onto every other adopter of shared infrastructure -- wrong layer. Instead: postcar_adapter.decide_guidance_with_rationale() requires justifying the use/no-use call against the same three judgment dimensions PostCar's own evaluation already scored (thesis_validity, goal_alignment, risk_note) plus concrete evidence, validates it, then hands off to postcar_check.decide_guidance() completely unchanged -- PostCar's shared core stays untouched and generic for every platform. AGENTS.md updated to point agents at this wrapper instead of calling PostCar's API directly. Verified: validation rejects non-dict/missing/incomplete rationale without ever needing postcar/ to exist; full success path tested end-to-end against a real cloned PostCar sidecar, rationale round-trips correctly through outcome_note as JSON.
+
 ## v2.10.35 — 2026-07-03
 
 *Files:* scheduler.py, schedule_config.py
