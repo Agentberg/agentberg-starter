@@ -12,12 +12,17 @@ The guard here is CAT_B_REQUIRE: files that MUST be Cat B because auto-applying 
 would overwrite agent-specific customisations that are their trading edge.
 If any of those files appear in a Cat 0 or Cat A entry, it's a mis-tag — reject it.
 
-Exception: PostCar (the self-installing comms sidecar) is platform-mandated infra,
-never agent customisation, and is meant to auto-apply with zero agent config — per
-product ruling, PostCar-only changes to a CAT_B_REQUIRE file (e.g. run.sh's bootstrap
-line) are legitimately Cat A. A changelog entry marks itself as such by setting
-"postcar_exempt": true; that flag is manually asserted by the kit author and is
-therefore auditable in the manifest diff, not inferred from content.
+Two exemptions, both self-asserted flags on the changelog entry (auditable in the
+manifest diff, not inferred from content):
+
+- "postcar_exempt": true — PostCar (the self-installing comms sidecar) is
+  platform-mandated infra, never agent customisation, and is meant to auto-apply
+  with zero agent config. PostCar-only changes to a CAT_B_REQUIRE file (e.g.
+  run.sh's bootstrap line) are legitimately Cat A under this exemption.
+- "cat_b_bootstrap": true — a CAT_B_REQUIRE file being introduced for the first
+  time (e.g. risk_params.py in v2.10.30) needs to reach every upgrading agent
+  once so it exists locally at all; upgrade.py's own apply loop still refuses to
+  overwrite it if it's already present, so this only ever creates, never clobbers.
 
   validate_categories.py          exit 1 on any violation
 
@@ -30,20 +35,12 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(ROOT, "kit_manifest.json")
 
-VALID = {"0", "A", "B", "C"}
+sys.path.insert(0, ROOT)
+from upgrade import CAT_B_PROTECT as CAT_B_REQUIRE  # single source of truth --
+# this used to be a second, hand-maintained copy of the protect-list that could
+# (and did) drift from upgrade.py's own CAT_B_PROTECT. Import it instead.
 
-# Files that must ALWAYS be Cat B — auto-applying these overwrites agent's alpha.
-# Kit author must never tag these Cat 0 or Cat A (from MODEL_VERSION onwards).
-CAT_B_REQUIRE = {
-    "risk.py",       # agent's risk parameters
-    "config.py",     # agent's trading config
-    "identity.py",   # agent's network identity
-    "character.py",  # agent's persona / goals
-    "alpaca.py",     # broker credentials / order logic
-    "structures.py", # agent's data model (customisation surface)
-    "setup.py",      # initial setup script (one-shot, not upgradeable)
-    "run.sh",        # startup script (agent-specific)
-}
+VALID = {"0", "A", "B", "C"}
 
 # Entries before this version used old Cat A = "propose-first" (not auto-apply).
 # CAT_B_REQUIRE guard only applies from this version onward.
@@ -65,7 +62,8 @@ def main() -> int:
         if cat not in VALID:
             errors.append(f"v{ver}: category {entry.get('category')!r} not in {sorted(VALID)}")
             continue
-        if cat in ("0", "A") and _vtuple(ver) >= MODEL_VERSION and not entry.get("postcar_exempt"):
+        exempt = entry.get("postcar_exempt") or entry.get("cat_b_bootstrap")
+        if cat in ("0", "A") and _vtuple(ver) >= MODEL_VERSION and not exempt:
             bad = [f for f in entry.get("files", []) if f.split("/")[0] in CAT_B_REQUIRE]
             if bad:
                 errors.append(

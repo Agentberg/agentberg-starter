@@ -1,8 +1,11 @@
 """
-config.py — All tunable parameters in one place.
+config.py — loads risk_params.py, then applies your character overlay and any
+learned guidance overrides on top.
 
-This is the only file you need to edit to configure your agent.
-Read every line. Change values to match your own strategy and risk tolerance.
+This file is kit mechanism, not values — it updates freely with the kit (Cat 0/A).
+Your actual numbers (watchlist, position sizing, stops, DTE/delta windows, etc.)
+live in risk_params.py, which the kit's own upgrades never touch. Edit that file
+to change your strategy/risk tolerance, not this one.
 
 DISCLAIMER: This is a software template, not investment advice.
 """
@@ -10,6 +13,15 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+from risk_params import *  # noqa: F401,F403 -- your numbers, re-exported here
+
+# Copy the mutable structures so the overlay logic below never mutates
+# risk_params' own module-level objects via the shared reference a star-import
+# creates -- WATCHLIST in particular is written to in place further down.
+WATCHLIST = {k: list(v) for k, v in WATCHLIST.items()}
+MANUAL_BLOCKED_SECTORS = list(MANUAL_BLOCKED_SECTORS)
+BLOCKED_REGIMES = list(BLOCKED_REGIMES)
 
 # ── Identity ───────────────────────────────────────────────────────────────────
 AGENT_ID       = os.environ["AGENT_ID"]                          # unique name on Agentberg network
@@ -33,78 +45,6 @@ if not ALPACA_PAPER and "paper" in ALPACA_BASE_URL.lower():
         "ALPACA_PAPER=false but ALPACA_BASE_URL still points to paper-api — "
         "set ALPACA_BASE_URL to the live endpoint or revert ALPACA_PAPER."
     )
-
-# ── Strategy mode ──────────────────────────────────────────────────────────────
-# "equity"         — buy/sell stocks
-# "premium_buyer"  — buy calls/puts directionally
-# "spreads"        — debit spreads (bull call / bear put)
-STRATEGY_MODE: str = "equity"
-
-# ── Watchlist ──────────────────────────────────────────────────────────────────
-# Grouped by sector. Add or remove tickers freely. Sectors the NETWORK has flagged are
-# advisory (weighed in AI ranking, not skipped); only YOUR own MANUAL_BLOCKED_SECTORS
-# (below) are hard-skipped.
-WATCHLIST: dict[str, list[str]] = {
-    "Technology":             ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMD", "TSLA", "NFLX", "PLTR", "SMCI", "MSTR", "COIN", "RKLB", "HOOD", "MARA"],
-    "Energy":                 ["XOM", "CVX", "COP", "SLB", "HAL", "OXY"],
-    "Financials":             ["JPM", "BAC", "GS", "MS", "WFC", "C", "COF"],
-    "Healthcare":             ["UNH", "JNJ", "ABT", "LLY", "MRK", "PFE", "AMGN"],
-    "Industrials":            ["CAT", "DE", "HON", "GE", "LMT", "BA", "UPS"],
-    "Consumer Discretionary": ["AMZN", "HD", "NKE", "SBUX", "TGT", "WMT", "MELI"],
-}
-
-# ── Position sizing ────────────────────────────────────────────────────────────
-MAX_POSITIONS:       int   = 30     # max concurrent open positions (increased for high activity)
-MAX_POSITION_PCT:    float = 0.01   # 1% of portfolio per equity trade (smaller size avoids BP exhaustion)
-MAX_OPTION_PCT:      float = 0.02   # 2% per single-leg options trade
-MAX_SPREAD_PCT:      float = 0.02   # 2% per spread (max loss = debit paid)
-MAX_NEW_PER_CYCLE:   int   = 10     # cap new positions opened in one session (forces instant activity)
-
-# ── Stop loss / take profit ────────────────────────────────────────────────────
-EQUITY_STOP_LOSS_PCT:   float = 0.04   # exit equity if down 4% (widened to avoid quick shakeouts)
-OPTION_STOP_LOSS_PCT:   float = 0.50   # exit option if down 50% of premium paid
-EQUITY_TAKE_PROFIT_PCT: float = 0.02   # exit equity at 2% gain — triggers frequently
-TAKE_PROFIT_PCT:        float = 1.00   # options: exit at 100% gain on premium (2× paid)
-
-# ── Trailing stop (all instruments) ────────────────────────────────────────────
-# Once a position gains TRIGGER_PCT, the stop trails DISTANCE_PCT below the
-# highest price seen since entry. Locks in gains on reversals without capping upside.
-# Equities use tighter distances (slow movers, no decay).
-# Options use wider distances (volatile premium, theta decay would fire too early).
-TRAILING_STOP_ENABLED:              bool  = True
-TRAILING_STOP_TRIGGER_PCT:          float = 0.01   # equities: activate at 1% gain
-TRAILING_STOP_DISTANCE_PCT:         float = 0.01   # equities: trail 1% below HWM
-OPTION_TRAILING_STOP_TRIGGER_PCT:   float = 0.20   # options: activate at 20% premium gain
-OPTION_TRAILING_STOP_DISTANCE_PCT:  float = 0.20   # options: trail 20% below HWM premium
-
-# ── Options DTE window ─────────────────────────────────────────────────────────
-MIN_DTE: int = 21    # < 21 DTE: gamma risk spikes
-MAX_DTE: int = 45    # > 45 DTE: too much premium at risk for too long
-
-# ── Options delta targeting ────────────────────────────────────────────────────
-MIN_DELTA: float = 0.20    # below this: lottery ticket (lowered for more leverage/excitement)
-MAX_DELTA: float = 0.50    # above this: just trade the stock
-
-# ── Beta filter ───────────────────────────────────────────────────────────────
-# Candidates with realized beta > this are filtered out as bullish entries in
-# range_bound regimes. Computed live from 40-day price bars vs SPY.
-HIGH_BETA_THRESHOLD: float = 1.8
-
-# ── IV Rank ────────────────────────────────────────────────────────────────────
-MAX_IV_RANK_TO_BUY: float = 30.0   # don't buy when IV is expensive
-
-# ── Spreads ────────────────────────────────────────────────────────────────────
-MAX_SPREAD_DEBIT_PCT:  float = 0.33   # max debit as % of spread width
-EARNINGS_BLACKOUT_DAYS: int = 5       # NOT ENFORCED — placeholder; risk.py does not yet check earnings calendar
-
-# ── Network rules ──────────────────────────────────────────────────────────────
-# Blocked sectors are populated from Agentberg at runtime — no need to set here.
-# Add permanent manual blocks if you want to avoid certain sectors regardless.
-MANUAL_BLOCKED_SECTORS: list[str] = []
-
-# Regimes to sit out entirely. "bear" means no new longs.
-BLOCKED_REGIMES: list[str] = []
-
 
 # ── Character overlay ──────────────────────────────────────────────────────────
 # If onboarding is complete (character.json), apply the operator's persona ON TOP of
