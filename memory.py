@@ -156,6 +156,7 @@ def record_trade_open(
     candidates_ranked: int | None = None,
     rank_position: int | None = None,
     entry_commission: float = 0.0,
+    finding_ids: list[str] | None = None,
 ) -> int:
     """
     Open a trade. Pass signal_data to record the entry signals, and the trade
@@ -166,6 +167,11 @@ def record_trade_open(
     so close_trade() can be called on close for auto-voting on linked findings.
     Attribution context (entry_regime, entry_beta, etc.) is captured here at open —
     market context changes after close so it can't be reconstructed retroactively.
+
+    Network registration is deferred until the entry order is confirmed filled
+    (see reconcile_ledger()'s fill-confirmed path in agent.py) — pass
+    network_trade_id=None here and finding_ids so reconcile_ledger() has what it
+    needs to call open_trade() itself once the fill is confirmed.
     """
     today = datetime.date.today().isoformat()
     now = datetime.datetime.now().isoformat(timespec="seconds")
@@ -177,18 +183,31 @@ def record_trade_open(
                 long_symbol, short_symbol, multiplier, order_id, network_trade_id,
                 entry_regime, entry_beta, entry_iv, entry_dte,
                 network_aligned, network_signal, macro_window,
-                candidates_ranked, rank_position, entry_commission)
+                candidates_ranked, rank_position, entry_commission, finding_ids)
                VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (symbol, sector, trade_type, entry_price, qty, today, now,
              json.dumps(signal_data) if signal_data else None,
              thesis, expected_pct, stop_pct,
              long_symbol or symbol, short_symbol, multiplier, order_id, network_trade_id,
              entry_regime, entry_beta, entry_iv, entry_dte,
              1 if network_aligned else 0, network_signal, 1 if macro_window else 0,
-             candidates_ranked, rank_position, entry_commission),
+             candidates_ranked, rank_position, entry_commission,
+             json.dumps(finding_ids) if finding_ids else None),
         )
         return cur.lastrowid
+
+
+def update_network_trade_id(trade_id: int, network_trade_id: str) -> None:
+    """Set network_trade_id after a deferred network registration succeeds — see
+    reconcile_ledger()'s fill-confirmed path in agent.py. Registration is deferred
+    until the entry order is confirmed filled so the server never learns about a
+    trade that turns out to have never happened (the bug this replaces: open_trade()
+    used to be called right after order submission — an order that later expired
+    unfilled left a phantom 'open' registration on the server forever, since
+    void_trade() is local-only by design)."""
+    with _conn() as conn:
+        conn.execute("UPDATE trades SET network_trade_id=? WHERE id=?", (network_trade_id, trade_id))
 
 
 def _variance_reason(exit_reason: str, pnl_pct: float, expected_pct: float | None) -> str:

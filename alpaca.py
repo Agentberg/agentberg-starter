@@ -250,6 +250,30 @@ class AlpacaClient:
             return True
         return order.get("status") == "filled"
 
+    # Terminal order states where the entry genuinely will never fill — distinct
+    # from "new"/"accepted"/"pending_new"/"partially_filled"/etc., which are still
+    # live and may yet fill. was_entry_filled()==False conflated "still pending"
+    # with "genuinely dead", which is why reconcile_ledger() used to void orders
+    # that were merely still working (not actually rejected/expired/cancelled) —
+    # confirmed live 2026-07-06 on jeeboo (a fork of this kit's plumbing): orders
+    # that later filled for real got voided prematurely, leaving phantom server
+    # registrations and orphaned real positions with no local record at all.
+    _TERMINAL_UNFILLED_STATUSES = frozenset({
+        "canceled", "expired", "rejected", "suspended", "done_for_day",
+    })
+
+    def entry_order_terminal_unfilled(self, order_id: str | None) -> bool:
+        """True only if the entry order reached a genuinely terminal non-fill
+        state (won't ever fill from here). False for an order that's still live
+        (new/accepted/pending/partially_filled) — those should be left alone,
+        not voided, until they either fill or actually reach a terminal state."""
+        if not order_id:
+            return False
+        order = self.get_order(order_id)
+        if order is None:
+            return False
+        return order.get("status") in self._TERMINAL_UNFILLED_STATUSES
+
     def get_last_fill(self, symbol: str, side: str | None = None, days: int = 60) -> dict | None:
         """
         Most recent filled order for a symbol (optionally a given side), newest first.

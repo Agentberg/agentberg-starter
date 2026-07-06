@@ -5,6 +5,14 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.38 — 2026-07-06
+
+*Files:* agent.py, memory.py, alpaca.py, migrations.py
+
+- Fixed a root-cause bug (not just a symptom) in the trade-open/reconcile flow that left phantom-registered trades on the server and orphaned real broker positions with no local record at all. Found live on jeeboo (a fork of this kit's plumbing) 2026-07-06: an agent's entry order was submitted, registered with the network immediately via open_trade() (before the fill was ever confirmed), then reconcile_ledger() voided it locally when a session happened to check before the fill landed -- but the order was still live at the broker and filled for real hours later. Result: the server thought the trade was still 'open' forever (void_trade() is local-only, no un-register call exists), and the real position that eventually filled had zero local trade record, so check_positions()/reconcile_ledger() never tracked or recorded it.
+- Two independent fixes, both needed: (1) network registration (_agentberg.open_trade()) is now deferred from trade-open time to reconcile_ledger()'s fill-confirmed path -- the server is never told about a trade until the entry is actually filled. New memory.update_network_trade_id() sets it once confirmed; new finding_ids column (migrations.py) persists what open_trade() needs so the deferred call can still auto-link findings for close-time voting. (2) reconcile_ledger()'s void condition changed from was_entry_filled()==False (true for ANY not-yet-filled order, including ones still legitimately working) to alpaca.py's new entry_order_terminal_unfilled() -- only genuinely terminal states (canceled/expired/rejected/suspended/done_for_day) void the trade now; still-live orders (new/accepted/pending/partially_filled) are left alone instead of being given up on prematurely.
+- Applies to all three trade-open paths (long/short stock, single option, spread) -- each now defers registration the same way. Verified: all 81 existing unit tests pass unchanged; a live functional test against a mocked broker/network confirms all three reconcile_ledger() branches (filled+held -> registers with finding_ids intact, terminal+not-held -> voids no network call, still-pending+not-held -> left untouched) behave correctly.
+
 ## v2.10.37 — 2026-07-06
 
 *Files:* run.sh, setup_autostart.py

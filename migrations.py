@@ -42,6 +42,9 @@ _MIGRATIONS = [
     ("exit_order_id",    "TEXT"),
     ("entry_commission", "REAL DEFAULT 0"),
     ("exit_commission",  "REAL DEFAULT 0"),
+    # v2.10.38 — deferred network registration (finding_ids must survive from
+    # open-time to the later reconcile_ledger() call that actually registers)
+    ("finding_ids",      "TEXT"),
 ]
 
 

@@ -210,18 +210,53 @@ def reconcile_ledger():
     if not open_trades:
         return
     held = _alpaca.get_position_symbols()
-    reconciled = 0
-    voided = 0
+    reconciled = registered = voided = 0
     for t in open_trades:
         legs = [s for s in (t.get("long_symbol"), t.get("short_symbol")) if s] or [t["symbol"]]
+        order_id = t.get("order_id")
+
         if any(s in held for s in legs):
+            # Still open at the broker. Network registration is deferred from
+            # open-time to here (see the trade-open comment in run_session()) —
+            # register now if the entry is confirmed filled and we haven't yet.
+            if not t.get("network_trade_id") and _alpaca.was_entry_filled(order_id):
+                finding_ids = _json.loads(t["finding_ids"]) if t.get("finding_ids") else None
+                try:
+                    net_open = _agentberg.open_trade(
+                        ticker=t["symbol"], trade_type=t.get("trade_type", "long_stock"),
+                        entry_date=(t.get("opened_at") or "")[:10],
+                        finding_ids=finding_ids,
+                        execution_env="paper" if cfg.ALPACA_PAPER else "live",
+                        sector=t.get("sector"), entry_price=t.get("entry_price"),
+                        entry_regime=t.get("entry_regime"), entry_beta=t.get("entry_beta"),
+                        entry_iv=t.get("entry_iv"), entry_dte=t.get("entry_dte"),
+                        network_aligned=bool(t.get("network_aligned")),
+                        network_signal=t.get("network_signal"),
+                        macro_window=bool(t.get("macro_window")),
+                    )
+                    if net_open and net_open.get("trade_id"):
+                        memory.update_network_trade_id(t["id"], net_open["trade_id"])
+                        registered += 1
+                except Exception as e:
+                    print(f"[net] open_trade {t['symbol']} failed ({e})")
             continue   # still open at the broker
 
-        # Entry order never filled — phantom open. Void it, never publish.
-        if not _alpaca.was_entry_filled(t.get("order_id")):
-            memory.void_trade(t["id"])
-            voided += 1
-            continue
+        if not t.get("network_trade_id"):
+            # Entry order reached a genuinely terminal non-fill state (canceled/
+            # expired/rejected/suspended/done_for_day) — phantom open, void it,
+            # never publish, no network call (nothing was ever registered).
+            # "Not filled yet" alone is NOT the same as terminal — a still-live
+            # order (new/accepted/pending/partially_filled) is left alone below
+            # instead of being voided prematurely (2026-07-06 fix — voiding on
+            # not-yet-filled voided orders that later filled for real, leaving
+            # phantom server registrations and orphaned real positions with no
+            # local record at all).
+            if _alpaca.entry_order_terminal_unfilled(order_id):
+                memory.void_trade(t["id"])
+                voided += 1
+                continue
+            if not _alpaca.was_entry_filled(order_id):
+                continue  # still pending, not held, not terminal — wait, don't guess
 
         long_sym = t.get("long_symbol") or t["symbol"]
         fill      = _alpaca.get_last_fill(long_sym, side="sell")
@@ -246,10 +281,12 @@ def reconcile_ledger():
                                    exit_price=exit_price or None, exit_reason="manual",
                                    exit_date=datetime.date.today().isoformat())
         reconciled += 1
+    if registered:
+        print(f"[reconcile] Registered {registered} newly-confirmed trade(s) with the network")
     if reconciled:
         print(f"[reconcile] Closed {reconciled} trade(s) from broker truth (server-side/offline exits)")
     if voided:
-        print(f"[reconcile] Voided {voided} phantom trade(s) — entry order never filled")
+        print(f"[reconcile] Voided {voided} phantom trade(s) — entry order reached a terminal non-fill state")
 
 
 def eod_reconcile(days: int = 30):
@@ -1020,28 +1057,24 @@ def run_session():
                                stop_loss_price=stop_price, take_profit_price=take_profit_price)
                 # Use Alpaca's actual fill price; fall back to pre-order snapshot only if not yet filled
                 entry_price = float(order.get("filled_avg_price") or 0) or live_price
-                net_open = _agentberg.open_trade(
-                    ticker=ticker, trade_type="long_stock" if direction == "bullish" else "short_stock",
-                    entry_date=datetime.date.today().isoformat(),
-                    finding_ids=trade_finding_ids,
-                    sector=sector, entry_price=entry_price,
-                    execution_env="paper" if cfg.ALPACA_PAPER else "live",
-                    entry_regime=regime, entry_beta=c.get("beta"),
-                    network_aligned=bool(trade_finding_ids),
-                    network_signal=direction, macro_window=_session_macro_window,
-                )
+                # Network registration is deferred to reconcile_ledger()'s fill-
+                # confirmed path (next session), not done here — registering
+                # before the order is confirmed filled left phantom "open" trades
+                # on the server forever whenever an order later expired unfilled
+                # (void_trade() never un-registers, local-only by design). See
+                # memory.update_network_trade_id()'s docstring.
                 trade_id = memory.record_trade_open(
                     ticker, sector, entry_price, qty,
                     trade_type="long_stock" if direction == "bullish" else "short_stock",
                     signal_data=signal, thesis=thesis,
                     expected_pct=expected_pct, stop_pct=stop_pct,
-                    order_id=order.get("id"),
-                    network_trade_id=net_open.get("trade_id") if net_open else None,
+                    order_id=order.get("id"), network_trade_id=None,
                     entry_regime=regime, entry_beta=c.get("beta"),
                     network_aligned=bool(trade_finding_ids),
                     network_signal=direction, macro_window=_session_macro_window,
                     candidates_ranked=_candidates_total, rank_position=_rank_pos,
                     entry_commission=float(order.get("commission") or 0),
+                    finding_ids=trade_finding_ids,
                 )
                 print(f"    ORDER {ticker}: {side} ×{qty} @ ~${live_price:.2f}  "
                       f"stop=${stop_price or 'none'}  tp=${take_profit_price or 'none'}  "
@@ -1088,28 +1121,20 @@ def run_session():
                 order    = _alpaca.submit_option_single(contract["symbol"], qty=1, side="buy", limit_price=limit_price)
                 # Use Alpaca's actual fill price; fall back to the limit price only if not yet filled
                 entry_price = float(order.get("filled_avg_price") or 0) or limit_price
-                net_open = _agentberg.open_trade(
-                    ticker=ticker, trade_type=f"long_{option_type}",
-                    entry_date=datetime.date.today().isoformat(),
-                    finding_ids=trade_finding_ids,
-                    sector=sector, entry_price=entry_price,
-                    execution_env="paper" if cfg.ALPACA_PAPER else "live",
-                    entry_regime=regime, entry_beta=c.get("beta"),
-                    entry_iv=iv_rank, entry_dte=dte,
-                    network_aligned=bool(trade_finding_ids),
-                    network_signal=direction, macro_window=_session_macro_window,
-                )
+                # Network registration deferred to reconcile_ledger() — see the
+                # long/short stock branch above for why.
                 trade_id = memory.record_trade_open(
                     ticker, sector, entry_price, 1, trade_type=f"long_{option_type}",
                     signal_data=signal, thesis=thesis, expected_pct=expected_pct, stop_pct=stop_pct,
                     long_symbol=contract["symbol"], order_id=order.get("id"),
-                    network_trade_id=net_open.get("trade_id") if net_open else None,
+                    network_trade_id=None,
                     entry_regime=regime, entry_beta=c.get("beta"),
                     entry_iv=iv_rank, entry_dte=dte,
                     network_aligned=bool(trade_finding_ids),
                     network_signal=direction, macro_window=_session_macro_window,
                     candidates_ranked=_candidates_total, rank_position=_rank_pos,
                     entry_commission=float(order.get("commission") or 0),
+                    finding_ids=trade_finding_ids,
                 )
                 print(f"    ORDER {ticker} {option_type.upper()} {contract['expiration_date']} "
                       f"${contract['strike_price']} δ={delta:.2f} @ ${entry_price:.2f}")
@@ -1156,27 +1181,22 @@ def run_session():
                 order    = _alpaca.submit_option_spread(buy_leg["symbol"], sell_leg["symbol"], qty=1, net_debit=net_debit)
                 # Use Alpaca's actual net fill price; fall back to the target debit only if not yet filled
                 entry_price = float(order.get("filled_avg_price") or 0) or net_debit
-                net_open = _agentberg.open_trade(
-                    ticker=ticker, trade_type="spread",
-                    entry_date=datetime.date.today().isoformat(),
-                    finding_ids=trade_finding_ids,
-                    sector=sector, entry_price=entry_price,
-                    execution_env="paper" if cfg.ALPACA_PAPER else "live",
-                    entry_regime=regime, entry_beta=c.get("beta"),
-                    entry_dte=dte, network_aligned=bool(trade_finding_ids),
-                    network_signal=direction, macro_window=_session_macro_window,
-                )
+                # Network registration deferred to reconcile_ledger() — see the
+                # long/short stock branch above for why. trade_type stores as
+                # "{option_type}_spread"; open_trade()'s own _TYPE_MAP normalizes
+                # call_spread/put_spread -> "spread" when reconcile registers it.
                 trade_id = memory.record_trade_open(
                     ticker, sector, entry_price, 1, trade_type=f"{option_type}_spread",
                     signal_data=signal, thesis=thesis, expected_pct=expected_pct, stop_pct=stop_pct,
                     long_symbol=buy_leg["symbol"], short_symbol=sell_leg["symbol"],
                     multiplier=100, order_id=order.get("id"),
-                    network_trade_id=net_open.get("trade_id") if net_open else None,
+                    network_trade_id=None,
                     entry_regime=regime, entry_beta=c.get("beta"),
                     entry_dte=dte, network_aligned=bool(trade_finding_ids),
                     network_signal=direction, macro_window=_session_macro_window,
                     candidates_ranked=_candidates_total, rank_position=_rank_pos,
                     entry_commission=float(order.get("commission") or 0),
+                    finding_ids=trade_finding_ids,
                 )
                 print(f"    SPREAD {ticker} {option_type.upper()} "
                       f"${float(buy_leg['strike_price']):.0f}/${float(sell_leg['strike_price']):.0f} debit=${net_debit:.2f}")
