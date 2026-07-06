@@ -147,8 +147,20 @@ def check_and_apply() -> None:
         return
     print(f"[kit-autoupdate] update available: v{local} -> v{remote} — invoking upgrade.py")
     try:
+        # No --no-restart here: that flag exists for when the SCHEDULER itself
+        # calls upgrade.py mid-session (scheduler_core.auto_upgrade_check(),
+        # which does its own sys.exit(0) instead of self-restarting). This
+        # daemon is a separate standalone process, so it's the one thing that
+        # CAN safely trigger the restart -- confirmed real 2026-07-06: gpower
+        # picked up interconnect.py on disk at 13:48 (this daemon applied it)
+        # but its scheduler.py process (started 08:18AM) never restarted, so
+        # the live process kept running for 5.5+ hours with none of the new
+        # code loaded -- 3 real peer messages sat unanswered as a direct
+        # result. upgrade.py's own _restart_scheduler() already does this
+        # safely (SIGTERM via logs/scheduler.lock's PID, then relaunch) --
+        # just stop suppressing it here.
         r = subprocess.run(
-            [sys.executable, str(HERE / "upgrade.py"), "--no-restart"],
+            [sys.executable, str(HERE / "upgrade.py")],
             capture_output=True, text=True, timeout=180, cwd=str(HERE),
         )
         print(r.stdout[-1500:])

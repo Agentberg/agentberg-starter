@@ -5,6 +5,13 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.42 — 2026-07-06
+
+*Files:* kit_autoupdate.py
+
+- Fixed kit_autoupdate.py's standalone 30-min upgrade daemon calling upgrade.py with --no-restart, which meant file-level upgrades landed on disk but the live scheduler.py process never restarted to load them -- confirmed live 2026-07-06 on gpower: interconnect.py landed on disk at 13:48 (this daemon applied it) but scheduler.py (running since 08:18AM) never restarted, so 3 real peer messages sat unanswered for hours despite the agent reporting the current kit version. --no-restart exists for when the SCHEDULER ITSELF calls upgrade.py mid-session (scheduler_core.auto_upgrade_check(), which does its own sys.exit(0) instead of self-restarting) -- kit_autoupdate.py is a separate standalone process and is exactly the thing that CAN safely trigger the restart. Now lets upgrade.py's existing _restart_scheduler() run (SIGTERM via logs/scheduler.lock's PID, then relaunch) instead of suppressing it.
+- Fleet-wide behavior change, confirmed intentional: every agent running this daemon will now have its scheduler process restarted (typically ~1-2s) whenever a Cat 0/A update is actually applied, instead of silently running stale in-memory code indefinitely between manual restarts.
+
 ## v2.10.41 — 2026-07-06
 
 *Files:* upgrade.py
