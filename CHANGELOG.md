@@ -5,6 +5,14 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.43 — 2026-07-06
+
+*Files:* upgrade.py, kit_autoupdate.py
+
+- Fixed a stray-system-proxy bug that silently broke every HTTPS call in upgrade.py and kit_autoupdate.py (kit tarball fetch, manifest check, telemetry POST) -- confirmed live 2026-07-06: SMoney's `agentberg upgrade` failed with CERTIFICATE_VERIFY_FAILED on every attempt, stuck 12+ days behind at kit v2.10.24 with zero visible error (scheduler_core.auto_upgrade_check() only logs subprocess failures at debug/warning level). Root cause confirmed via direct test: a stray macOS system proxy (same class of incident already diagnosed and fixed once in minig/minig/__init__.py -- Kampala's browser-interception proxy, 127.0.0.1:18080, left configured but not running) intercepts the TLS connection with a cert outside any trust store. Ruled out a missing-CA-bundle theory first (tried a certifi-backed SSLContext fallback -- did not fix it) before confirming NO_PROXY=* was the actual fix.
+- Both files now set os.environ.setdefault("NO_PROXY", "*") / setdefault("no_proxy", "*") before their first network call, mirroring minig's existing fix. setdefault() never overrides a proxy the operator explicitly configured. Verified end-to-end on SMoney: fresh interpreter, `python3 upgrade.py` fetched the full kit tarball successfully and applied 24 pending files (2.10.24 -> 2.10.42) including interconnect.py, where every prior attempt had failed silently for 12+ days.
+- This directly explains why SMoney (and potentially any other agent behind the same class of stray proxy) never received interconnect.py or any other kit update despite kit_autoupdate.py's daemon running on schedule -- the fetch itself was failing every single cycle.
+
 ## v2.10.42 — 2026-07-06
 
 *Files:* kit_autoupdate.py

@@ -24,6 +24,22 @@ import hashlib
 import io
 import json
 import os
+
+# Bypass any macOS system-level HTTP/HTTPS proxy before the first network call
+# below. Without this, a stray system proxy pointing at a dead local port
+# silently breaks every HTTPS call here (urllib's default opener honors
+# system proxy settings). Same root cause already diagnosed and fixed once in
+# minig/minig/__init__.py (Kampala's browser-interception proxy, 127.0.0.1:
+# 18080, left configured but not running) -- confirmed live again 2026-07-06:
+# SMoney's `agentberg upgrade` failed with CERTIFICATE_VERIFY_FAILED on every
+# call (a proxy doing TLS interception with a cert outside any trust store,
+# not an actual missing-CA problem -- setting NO_PROXY fixed it immediately,
+# swapping in certifi's CA bundle did not), leaving it stuck 12+ days behind
+# at kit v2.10.24 with zero visible error (scheduler_core.auto_upgrade_check()
+# only logs subprocess failures at debug/warning level).
+os.environ.setdefault("NO_PROXY", "*")
+os.environ.setdefault("no_proxy", "*")
+
 import shutil
 import subprocess
 import sys

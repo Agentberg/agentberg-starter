@@ -35,6 +35,13 @@ Remove that line (or set to false) to go back to normal Cat B protection.
 import hashlib
 import json
 import os
+
+# Same NO_PROXY fix as upgrade.py -- see that file's comment for the full
+# diagnosis (a stray system proxy, not a missing CA, confirmed live
+# 2026-07-06 on SMoney). Must run before any HTTPS call this daemon makes.
+os.environ.setdefault("NO_PROXY", "*")
+os.environ.setdefault("no_proxy", "*")
+
 import subprocess
 import sys
 import time
