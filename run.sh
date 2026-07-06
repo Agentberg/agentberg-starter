@@ -41,7 +41,16 @@ echo "[watchdog] $(date) — starting scheduler. Ctrl-C to stop."
 
 while true; do
     START=$(date +%s)
-    "$PYTHON" "$SCHEDULER" || true
+    # macOS: without caffeinate, system sleep (lid close/idle) stalls the
+    # scheduler's own internal time.sleep() timer — the process stays alive
+    # (this watchdog sees no crash) but oversleeps past its next scheduled
+    # session/heartbeat by however long the Mac was asleep. caffeinate -s -i
+    # keeps the system awake only while this process is running.
+    if [[ "$(uname)" == "Darwin" ]] && command -v caffeinate >/dev/null 2>&1; then
+        caffeinate -s -i "$PYTHON" "$SCHEDULER" || true
+    else
+        "$PYTHON" "$SCHEDULER" || true
+    fi
     END=$(date +%s)
     ELAPSED=$(( END - START ))
 

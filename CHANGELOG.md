@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.37 — 2026-07-06
+
+*Files:* run.sh, setup_autostart.py
+
+- Fixed the scheduler stalling across macOS system sleep (lid close/idle) instead of crashing outright -- a distinct failure mode from what v2.10.35's heartbeat-chunking fix covers. Diagnosed live on a fleet agent: the scheduler process was alive (no crash, no restart triggered) but stuck in a single 77-hour time.sleep() call over a holiday/weekend close; the Mac went through 26+ sleep/wake cycles in that window, each one stalling the process's own timer, so it overshot its next scheduled 09:35 ET session by 2+ hours and sent no heartbeat. run.sh's watchdog loop now wraps the scheduler invocation in `caffeinate -s -i` on macOS (no-op on Linux, where this class of sleep doesn't apply) so the OS can't suspend the process's clock while it's running. setup_autostart.py's _exec_parts() got the same caffeinate prefix for its no-run.sh direct-scheduler.py launchd fallback. Matches the pattern jeeboo's own launchd plist already used correctly -- that gap between the two agents is what surfaced this.
+
 ## v2.10.36 — 2026-07-03
 
 *Files:* postcar_adapter.py, AGENTS.md

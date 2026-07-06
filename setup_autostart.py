@@ -60,7 +60,14 @@ def _exec_parts(folder: Path, python: str) -> list[str]:
     run_sh = folder / "run.sh"
     if run_sh.exists():
         return ["/bin/bash", str(run_sh)]
-    return [python, str(folder / "scheduler.py")]
+    parts = [python, str(folder / "scheduler.py")]
+    # macOS: prefix with caffeinate so system sleep can't stall scheduler.py's
+    # own time.sleep() timer (same issue run.sh's loop guards against — see
+    # its caffeinate comment). run.sh's own path already handles this itself;
+    # this is only for the no-run.sh direct-scheduler.py fallback.
+    if sys.platform == "darwin" and shutil.which("caffeinate"):
+        parts = ["/usr/bin/caffeinate", "-s", "-i"] + parts
+    return parts
 
 
 # ── macOS (launchd) ──────────────────────────────────────────────────────────
