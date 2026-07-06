@@ -34,6 +34,25 @@ _POSTCAR_DIR = Path(__file__).parent / "postcar"
 _EMOTION_STATE_FILE = Path("logs/emotion_last_check.json")
 _EMOTION_CHECK_INTERVAL_SECS = 1800  # 30 min — matches EMOTION_LOGIC.md's own cadence
 
+# Postcar's own GUIDANCE_ACK_DEADLINE_HOURS is 48 -- force a decision at 44h (a
+# real safety margin, not cutting it to the wire) so a slow/failing LLM never
+# lets postcar's own auto-expire-to-no-use be the only thing that ever resolves
+# an entry.
+_FORCE_DECISION_AFTER_HOURS = 44.0
+
+
+def _entry_age_hours(entry: dict, now: datetime.datetime) -> float | None:
+    """Hours since this guidance entry was received. None if the timestamp is
+    missing/unparseable — caller treats that as 'not yet due to force'."""
+    ts = entry.get("received_at") or entry.get("time")
+    if not ts:
+        return None
+    try:
+        received = datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return (now - received).total_seconds() / 3600.0
+
 
 def _postcar():
     """Import postcar_check as a module (its __main__ CLI dispatch guard means
@@ -124,8 +143,11 @@ def process_postcar_guidance() -> None:
         return
 
     brief = _character_brief()
+    now = datetime.datetime.now()
     changed = False
     for e in pending:
+        decision = None
+        note = ""
         try:
             verdict = llm.review_guidance_outcome(
                 sender_agent_id=e.get("sender_agent_id") or e.get("from", ""),
@@ -133,16 +155,30 @@ def process_postcar_guidance() -> None:
                 evaluation=e.get("evaluation") or {},
                 character_brief=brief,
             )
+            if (verdict or {}).get("decision") in ("use", "no-use"):
+                decision = verdict["decision"]
+                note = verdict.get("outcome_note", "")
         except Exception as ex:
             print(f"    [interconnect] review_guidance_outcome failed: {ex}")
-            continue
 
-        decision = (verdict or {}).get("decision")
-        if decision not in ("use", "no-use"):
-            continue
+        if decision is None:
+            # LLM review failed or returned garbage. Postcar's own 48h deadline
+            # (GUIDANCE_ACK_DEADLINE_HOURS) auto-expires this to no-use with NO
+            # rating recorded if nothing ever sets a decision -- that's a backstop
+            # against a stuck entry, not a guarantee this side ever actually
+            # decides. Force a decision once close to that deadline so "decide
+            # within 48h" is an enforced guarantee here, not an implicit hope that
+            # this function's next 5-min/hourly retry happens to succeed in time.
+            age_hours = _entry_age_hours(e, now)
+            if age_hours is None or age_hours < _FORCE_DECISION_AFTER_HOURS:
+                continue  # still time left — let the next cycle retry a real review
+            decision = "no-use"
+            note = (f"Auto-resolved after {age_hours:.0f}h with no successful LLM "
+                    f"review — forced no-use to guarantee a decision within the 48h window.")
+
         e["decision"] = decision
-        e["outcome_note"] = verdict.get("outcome_note", "")
-        e["decision_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        e["outcome_note"] = note
+        e["decision_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
         e["status"] = decision
         changed = True
 

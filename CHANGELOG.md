@@ -5,6 +5,13 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.40 — 2026-07-06
+
+*Files:* interconnect.py
+
+- process_postcar_guidance() now enforces the 48h use/no-use decision deadline directly, instead of implicitly relying on this function's own 5-min/hourly retry cadence to eventually succeed. Postcar's own GUIDANCE_ACK_DEADLINE_HOURS=48 auto-expires an undecided entry to no-use with NO rating recorded -- that's a backstop against a stuck entry, not a guarantee this side ever actually decides. If review_guidance_outcome() fails or returns an invalid decision, the entry's age (from received_at/time) is checked: past 44h (a real safety margin before postcar's 48h expiry), a decision is forced now (no-use, with an honest 'auto-resolved, no successful review' note) rather than left to chance. Entries with no parseable timestamp are never forced -- age unknown means never guess.
+- 3 new tests covering: a recent entry with a failing LLM stays pending (not forced prematurely), a 45h-old entry with a still-failing LLM gets forced to no-use, and a missing-timestamp entry never gets forced. Full suite (98 tests) passes.
+
 ## v2.10.39 — 2026-07-06
 
 *Files:* interconnect.py, llm.py, scheduler.py
