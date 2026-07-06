@@ -5,6 +5,14 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.41 — 2026-07-06
+
+*Files:* upgrade.py
+
+- Fixed a version-bump bug in upgrade.py that silently swallowed Cat B/C entries fleet-wide. _do_upgrade() applies only Cat 0/A files into `to_apply`, but then unconditionally set adopted["version"] = latest right after -- even with Cat B/C entries still pending. Once .agentberg_adopted.json's version reached `latest`, _pending() computed forward from that version on every future run, so the still-unapplied B/C entries stopped showing as pending at all -- permanently, with zero signal. Confirmed live 2026-07-06: gpower's .agentberg_adopted.json reported v2.10.39 adopted while interconnect.py (a Cat B entry in that same release) was physically absent from disk. This directly contradicted UPGRADING.md's own documented guarantee ('the adopted version only advances to the latest once no Category A/B entries remain pending'). Fix: adopted["version"] now only advances to `latest` when manual_entries (pending B/C) is empty, in both the no-drift and apply branches -- matches the doc, and Cat B/C entries now correctly keep showing as pending every run until reviewed.
+- Retagged 2.10.38 (ghost-trade fix: agent.py/memory.py/alpaca.py/migrations.py) and 2.10.39/2.10.40 (interconnect.py) from Cat B to Cat A. None of the touched files are in CAT_B_REQUIRE (risk_params.py/schedule_config.py/character.json/capabilities.json) -- these are broker-reconcile and comms-plumbing fixes, not agent-specific alpha, and fit Cat A's own definition ('broker reconcile... changes behavior on purpose, so it can't be proven inert'). Mistagging them B is what let them sit un-auto-applied on every fleet agent since release despite kit_manifest.json/.agentberg_adopted.json reporting them as current. Combined with the gating fix above, these three now auto-apply on the next upgrade tick fleet-wide.
+- validate_categories.py passes unchanged -- CAT_B_REQUIRE guard only blocks Cat 0/A entries that touch agent-alpha files; none of these do.
+
 ## v2.10.40 — 2026-07-06
 
 *Files:* interconnect.py

@@ -534,11 +534,24 @@ def _do_upgrade(folder: Path, no_restart: bool = False) -> None:
             to_apply.append(rel)
 
         if not to_apply:
-            if _vtuple(latest) > _vtuple(from_version):
+            # Adopted version only advances to `latest` when NO Cat B/C entries
+            # are outstanding -- matches UPGRADING.md's own promise. Bumping past
+            # a pending manual entry made _pending() compute forward from the new
+            # adopted version next run, so the still-unapplied B/C entry silently
+            # stopped showing as pending forever -- the exact bug that let
+            # 2.10.38/2.10.39 (both Cat B) vanish fleet-wide while
+            # .agentberg_adopted.json falsely reported them as adopted.
+            if not manual_entries and _vtuple(latest) > _vtuple(from_version):
                 adopted["version"] = latest
                 _save_adopted(folder, adopted)
-                shutil.copy2(str(newdir / "kit_manifest.json"), str(folder / "kit_manifest.json"))
-            print(f"  Up to date (v{latest}) — no drift.")
+            src_manifest = newdir / "kit_manifest.json"
+            if src_manifest.is_file():
+                shutil.copy2(str(src_manifest), str(folder / "kit_manifest.json"))
+            if manual_entries:
+                print(f"  Cat 0/A up to date. {len(manual_entries)} manual (Cat B/C) "
+                      f"entr{'y' if len(manual_entries) == 1 else 'ies'} pending review — see UPGRADING.md.")
+            else:
+                print(f"  Up to date (v{latest}) — no drift.")
             _bootstrap_postcar(folder)  # self-heal even when kit is already current
             _install_kit_autoupdate_daemon(folder)
             return
@@ -582,7 +595,13 @@ def _do_upgrade(folder: Path, no_restart: bool = False) -> None:
             if "kit_manifest.json" not in applied:
                 applied.append("kit_manifest.json")
 
-        adopted["version"] = latest
+        # Only advance the adopted version past `latest` when no Cat B/C entries
+        # are outstanding -- see matching comment in the `not to_apply` branch
+        # above. Applying Cat 0/A files is independent of this: file hashes
+        # already match post-apply, so next run's to_apply is empty regardless
+        # of whether adopted["version"] moved.
+        if not manual_entries:
+            adopted["version"] = latest
         _save_adopted(folder, adopted)
 
         print(f"\n  Applied {len(applied)} file(s):")
