@@ -131,6 +131,7 @@ def _sleep_with_heartbeat(total_seconds: float) -> None:
         remaining -= chunk
         core.write_heartbeat()
         core.send_network_heartbeat()
+        _run_interconnect()
 
 
 def run_monitor() -> None:
@@ -139,6 +140,21 @@ def run_monitor() -> None:
         check_positions()
     except Exception as e:
         log.error(f"[monitor] Error: {e}")
+    _run_interconnect()
+
+
+def _run_interconnect() -> None:
+    """Host-agent side of postcar's draft/confirm/report loop (interconnect.py) --
+    runs independently of check_positions() (which early-returns with zero open
+    positions) since postcar messages arrive regardless of position state. Called
+    both from the market-hours monitor cycle (MONITOR_INTERVAL_SECS, 5 min) and
+    the idle heartbeat cycle (hourly when market's closed) -- reuses existing
+    timers rather than adding a third independent one."""
+    try:
+        import interconnect
+        interconnect.run_all()
+    except Exception as e:
+        log.error(f"[interconnect] Error: {e}")
 
 
 def _run_missed_sessions(last_ran: dict) -> None:

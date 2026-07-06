@@ -5,6 +5,15 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.39 — 2026-07-06
+
+*Files:* interconnect.py, llm.py, scheduler.py
+
+- New interconnect.py: the host-agent side of postcar's draft/confirm/report loop, which never existed anywhere in the kit before today. Postcar (postcar/postcar_check.py) is a comms carrier -- it delivers messages, drafts candidate replies with its own limited-context LLM call, and logs peer guidance -- but per its own postcar/EMOTION_LOGIC.md, 'postcar has no business deciding that for you.' Confirmed live 2026-07-06: nothing in this kit ever called postcar's get_pending_inbox()/reply(), so every drafted reply just sat until its urgency deadline (30min-24h) and auto-fired postcar's own draft, unreviewed -- postcar's v0.5.5 gate fix stops instant unreviewed sends, but genuine review only happens if something on the agent side actually looks at the queue. Before this, nothing did.
+- Three pieces, each independent and individually degrading: (1) process_postcar_inbox() reviews each pending inbox draft via the agent's own LLM (llm.review_inbox_draft()) and confirms/overrides/skips -- never rubber-stamps postcar's draft, since that draft can be a hallucinated tool-call (confirmed live today, see postcar-agent#2). (2) process_postcar_guidance() decides use/no-use + outcome_note for each pending .postcar_guidance entry (llm.review_guidance_outcome()) and writes it directly to the file -- the one interconnect file safe to hand-edit; postcar picks up the decision within its own next cycle and submits the credibility rating itself. (3) check_self_emotion(), throttled to once per 30 min, evaluates recent performance against EMOTION_LOGIC.md's fear/confusion/curiosity triggers (the only three currently wired to dispatch anywhere) and calls report_trigger() directly when one genuinely applies (llm.emotion_self_check()) -- boredom/isolation/frustration/rivalry are intentionally excluded since they have no platform hook yet.
+- Wired into scheduler.py's existing timers, not a new independent one: called from run_monitor() (every MONITOR_INTERVAL_SECS, 5 min, during market hours) and from the idle heartbeat cycle (hourly when market's closed) -- runs regardless of open-position state, since check_positions() early-returns with zero positions but postcar messages arrive independent of that.
+- All three functions default to the safe no-op on any failure (skip / no-use with an honest note / no trigger) rather than fabricating a decision from a failed LLM call -- same defensive pattern as llm.py's existing evaluate_guidance(). Verified: 14 new unit tests (tests/test_interconnect.py) covering skip/confirm/override, decision-writing, invalid-LLM-output handling, zero-trades guard, and the 30-min throttle, all passing; full suite (95 tests) passes with zero regressions.
+
 ## v2.10.38 — 2026-07-06
 
 *Files:* agent.py, memory.py, alpaca.py, migrations.py

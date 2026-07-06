@@ -763,3 +763,174 @@ JSON array only — no prose, no markdown."""
         print(f"    [{adapter.NAME}] guidance eval failed ({e}) — DEFER all")
         return [dict(_GUIDANCE_DEFER, message_id=m.get("message_id"), reasoning=f"LLM error: {e}")
                 for m in messages]
+
+
+def review_inbox_draft(
+    question: str, draft_response: str, capability: str = "", urgency: str = "medium",
+    character_brief: str | None = None,
+) -> dict:
+    """
+    Review postcar's own LLM-drafted reply to a peer's question before it goes out —
+    the actual "carrier, not composer" review step (postcar drafts, the agent decides).
+    Never rubber-stamp: postcar's draft can be a hallucinated tool-call or a stale/wrong
+    answer (confirmed live 2026-07-06 — see postcar-agent#2).
+
+    Returns {"action": "confirm"|"override"|"skip", "response": str, "confidence": str}.
+    "skip" means don't call reply() at all — leave it for the urgency-deadline auto-fire
+    (safe default on any failure: better to fall back to existing behavior than invent
+    an answer with no real review behind it).
+    """
+    default = {"action": "skip", "response": "", "confidence": "low"}
+    if os.environ.get("LLM_REASONING", "").lower() == "off":
+        return default
+    adapter = _select_adapter()
+    if adapter is None:
+        return default
+
+    prompt = f"""You are a trading agent reviewing a draft reply before it's sent to a peer.
+Your character: {character_brief or '(not set)'}
+
+A peer asked (capability requested: {capability or 'none'}, urgency: {urgency}):
+{question or '(no question text)'}
+
+Postcar (your comms sidecar) drafted this reply automatically, using its own limited-context
+LLM call — it does NOT have access to your real trade history, findings, or reasoning. Review
+it critically:
+- If it's accurate, grounded, and something you'd actually say: CONFIRM it.
+- If it's wrong, hallucinated (e.g. describes running a tool/command instead of answering),
+  or you can give a better answer from your own actual data: OVERRIDE it with your own answer.
+- If you have no way to evaluate this (no real data available either way): SKIP — don't
+  send anything, let it expire rather than confirming a guess.
+
+Draft reply: {draft_response or '(empty)'}
+
+Return JSON only:
+{{"action": "confirm" | "override" | "skip", "response": "<your final answer, only if action != skip>", "confidence": "low" | "medium" | "high"}}"""
+
+    try:
+        raw = adapter.run(prompt)
+        payload = _extract_json_object(raw)
+        if payload is None:
+            return default
+        result = json.loads(payload)
+        return result if isinstance(result, dict) else default
+    except Exception as e:
+        print(f"    [{adapter.NAME}] inbox draft review failed ({e}) — skip")
+        return default
+
+
+def review_guidance_outcome(
+    sender_agent_id: str, raw_content: str, evaluation: dict | None = None,
+    character_brief: str | None = None,
+) -> dict:
+    """
+    Decide use/no-use + outcome_note for a received .postcar_guidance entry — the
+    host-side half of the credibility-rating loop (postcar submits the rating once
+    this is set; see postcar/EMOTION_LOGIC.md's "Related gap" section and the
+    4-bucket scale: useful/related/unrelated/negative).
+
+    Returns {"decision": "use"|"no-use", "outcome_note": str}. Defaults to "no-use"
+    with a plain explanatory note on any failure — never leaves a real decision
+    fabricated from nothing.
+    """
+    default = {"decision": "no-use", "outcome_note": "Could not evaluate (no LLM available)."}
+    if os.environ.get("LLM_REASONING", "").lower() == "off":
+        return default
+    adapter = _select_adapter()
+    if adapter is None:
+        return default
+
+    ev = evaluation or {}
+    prompt = f"""You are a trading agent deciding whether a network message was actually useful.
+Your character: {character_brief or '(not set)'}
+
+From: {sender_agent_id}
+Content: {raw_content or '(empty)'}
+
+Postcar's own automated evaluation of this message:
+  thesis_validity: {ev.get('thesis_validity', 'unknown')}
+  goal_alignment: {ev.get('goal_alignment', 'unknown')}
+  risk_note: {ev.get('risk_note', 'none')}
+  recommendation: {ev.get('recommendation', 'unknown')}
+
+Decide for yourself — postcar's evaluation is advisory, not binding:
+- "use": this genuinely informed or changed something (or is itself a real, actionable
+  finding/bug report), even if you only acted on it partially.
+- "no-use": empty, irrelevant, wrong, or you took no real action based on it.
+
+outcome_note must cite something concrete (what you did or didn't do because of this),
+not a vibe restatement.
+
+Return JSON only:
+{{"decision": "use" | "no-use", "outcome_note": "<one or two sentences, concrete>"}}"""
+
+    try:
+        raw = adapter.run(prompt)
+        payload = _extract_json_object(raw)
+        if payload is None:
+            return default
+        result = json.loads(payload)
+        if isinstance(result, dict) and result.get("decision") in ("use", "no-use"):
+            return result
+        return default
+    except Exception as e:
+        print(f"    [{adapter.NAME}] guidance outcome review failed ({e}) — no-use")
+        return default
+
+
+def emotion_self_check(stats: dict, character_brief: str | None = None) -> dict | None:
+    """
+    Self-evaluate recent performance against postcar/EMOTION_LOGIC.md's 4-axis
+    trigger table (sign / reference-frame / order / recurrence) and decide whether
+    to call report_trigger() yourself. Only fear/confusion/curiosity actually
+    dispatch anywhere right now (boredom/isolation/frustration/rivalry are log-only
+    per the taxonomy) — this only asks about those three to avoid drafting triggers
+    with no platform hook to receive them.
+
+    Returns None if nothing rises to a real trigger (the common case — this should
+    NOT fire every call just because it was asked). Returns
+    {"trigger": "fear"|"confusion"|"curiosity", "evidence": str, "message": str,
+     "capability": str, "urgency": str} when one genuinely applies.
+    """
+    if os.environ.get("LLM_REASONING", "").lower() == "off":
+        return None
+    adapter = _select_adapter()
+    if adapter is None:
+        return None
+
+    prompt = f"""You are a trading agent doing a periodic self-check against your own recent
+performance, using this exact taxonomy (from your own postcar/EMOTION_LOGIC.md):
+
+- FEAR: negative goal-variance, a real streak (not one bad trade), measured against your
+  own goal. Evidence must cite a specific number (e.g. "4 of last 5 trades lost, -$X net").
+- CONFUSION: your own recent signals are conflicting/high variance-of-variance — you don't
+  have a clean read on what's working. Evidence must cite the specific conflicting signals.
+- CURIOSITY: a genuinely surprising positive outlier in your own results worth sharing as
+  a finding (not just "things are fine").
+
+Your character: {character_brief or '(not set)'}
+Your last-7-days stats: {json.dumps(stats)}
+
+Default to reporting NOTHING — this fires only for a real, evidenced signal, not routine
+operation. Most checks should return null. Do not report the same underlying issue you'd
+have already reported before (postcar's own dedupe will drop exact repeats, but don't rely
+on that — use judgement).
+
+Return JSON only:
+{{"trigger": "fear" | "confusion" | "curiosity" | null, "evidence": "<concrete, cites a number>",
+  "message": "<what you'd actually ask/share, in your own words>", "capability": "<capability tag or empty>",
+  "urgency": "low" | "medium" | "high"}}
+If nothing applies, return {{"trigger": null}}."""
+
+    try:
+        raw = adapter.run(prompt)
+        payload = _extract_json_object(raw)
+        if payload is None:
+            return None
+        result = json.loads(payload)
+        if isinstance(result, dict) and result.get("trigger") in ("fear", "confusion", "curiosity"):
+            return result
+        return None
+    except Exception as e:
+        print(f"    [{adapter.NAME}] emotion self-check failed ({e}) — skip")
+        return None
