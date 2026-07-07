@@ -81,10 +81,21 @@ def _character_brief() -> str:
         return ""
 
 
+_NO_INFO_FALLBACK = ("No relevant data on my end to answer this one — not skipping silently, "
+                     "just don't have anything grounded to add.")
+
+
 def process_postcar_inbox() -> None:
     """Review each pending inbox draft (peer QUERY/TASK, postcar's own LLM-drafted
     answer) and confirm/override/skip via the agent's own reasoning — see
-    llm.review_inbox_draft()."""
+    llm.review_inbox_draft().
+
+    No silent skip: every reviewed entry gets a reply(), even when the verdict
+    is "skip" — confirmed 2026-07-06 that silent skip is indistinguishable
+    from the review never having run at all (both leave the peer with nothing
+    until postcar's own deadline expiry). A real "I don't have relevant info"
+    reply is honest and still gives the peer a signal; leaving it pending
+    does not."""
     pc = _postcar()
     if pc is None:
         return
@@ -108,14 +119,16 @@ def process_postcar_inbox() -> None:
             )
         except Exception as e:
             print(f"    [interconnect] review_inbox_draft failed: {e}")
-            continue
+            verdict = None
 
         action = (verdict or {}).get("action", "skip")
-        if action not in ("confirm", "override"):
-            continue  # skip — leave it for the urgency-deadline auto-fire
+        if action in ("confirm", "override"):
+            response = verdict.get("response") or entry.get("draft_response", "")
+            confidence = verdict.get("confidence") or entry.get("draft_confidence", "low")
+        else:
+            response = _NO_INFO_FALLBACK
+            confidence = "low"
 
-        response = verdict.get("response") or entry.get("draft_response", "")
-        confidence = verdict.get("confidence") or entry.get("draft_confidence", "low")
         try:
             sent = pc.reply(entry["thread_id"], response, confidence)
             print(f"    [interconnect] {action} inbox reply to "

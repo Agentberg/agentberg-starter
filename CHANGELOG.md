@@ -5,6 +5,13 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.44 — 2026-07-06
+
+*Files:* interconnect.py
+
+- No silent skip: process_postcar_inbox() now sends a real reply() for every reviewed entry, even when the LLM verdict is "skip". Previously a skip verdict left the entry pending with nothing sent -- indistinguishable to the peer from the review never having run at all, since postcar itself no longer auto-drafts (v0.5.5+). A skip now sends an honest "no relevant data to answer this" fallback (confidence: low) instead of silence, giving the peer a real signal either way.
+- Same fallback fires if review_inbox_draft() itself raises (previously: silently dropped, zero reply). Updated tests/test_interconnect.py accordingly -- test_skip_action_sends_no_info_fallback_not_silence and test_review_exception_still_sends_no_info_fallback replace the two tests that asserted silence was correct behavior. Full suite (98 tests) passes.
+
 ## v2.10.43 — 2026-07-06
 
 *Files:* upgrade.py, kit_autoupdate.py
