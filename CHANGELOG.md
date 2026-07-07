@@ -5,6 +5,17 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.49 — 2026-07-06
+
+*Files:* agent.py
+
+- CRITICAL: fixed a fleet-wide P&L direction bug for short_stock trades. qty is always stored positive (direction only lives in the trade_type string), but reconcile_ledger(), eod_reconcile()'s exit-side correction, and _record_close() all computed dollar pnl and/or pnl_pct as naive (exit_price - entry) * qty * mult / entry with no branch on direction -- correct for long_stock, backwards for short_stock (a short profits when price FALLS). Confirmed live 2026-07-06 auditing gpower's real trade history: all 3 of its closed short_stock trades had a wrong-signed pnl_pct (one, e.g., reported as -2.4% loss on a real +2.4% short win), and multiple long_stock closes showed dollar pnl disagreeing in sign with the price-implied direction depending on which of these 3 code paths happened to record the close.
+- Also fixed reconcile_ledger()'s exit-fill lookup, which hardcoded side='sell' regardless of direction -- the closing fill for a short is a BUY (buy to cover), so this could never find a short position's real exit fill at all (it was matching the entry side instead). Now direction-aware: side='buy' if short else 'sell'.
+- Also fixed _record_close()'s no-fill-yet fallback exit_price reconstruction (entry * (1 + pnl_pct)), which assumed long-only semantics and would reconstruct a short's approximate exit price moving the wrong direction.
+- This is a pure post-hoc reporting/reconciliation fix -- no order placement, sizing, or entry/exit trigger logic changes, so no live capital-exposure change. Tagged Cat A on that basis (unlike the bracket-order TIF fix in 2.10.46, which changed real order behavior).
+- Downstream blast radius this closes: corrupted short-trade P&L was feeding into per-sector win-rate/P&L findings published to the network (agent.py's sector-consensus block), the LLM's own ranking context (recent-trades feed), and the daily self-reflection step -- all of which could act on wrong-signed short-trade outcomes, not just display them wrong.
+- 7 new tests (tests/test_pnl_direction.py, local-only per this kit's test convention) cover long win/loss, short win/loss, both fallback exit-price reconstructions, and confirm option/spread trade_types are never treated as short. Full suite (111 tests) passes.
+
 ## v2.10.48 — 2026-07-06
 
 *Files:* knowledge.py, agent.py

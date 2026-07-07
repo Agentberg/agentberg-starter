@@ -259,14 +259,20 @@ def reconcile_ledger():
                 continue  # still pending, not held, not terminal — wait, don't guess
 
         long_sym = t.get("long_symbol") or t["symbol"]
-        fill      = _alpaca.get_last_fill(long_sym, side="sell")
+        is_short = "short" in (t.get("trade_type") or "")
+        # Closing fill is a BUY for a short position (buy to cover), a SELL for a
+        # long one -- confirmed bug: this was hardcoded to "sell" regardless of
+        # direction, so short-position reconciliation could never find its own
+        # exit fill (it only matches the entry side instead).
+        fill      = _alpaca.get_last_fill(long_sym, side="buy" if is_short else "sell")
         exit_price = float(fill.get("filled_avg_price") or 0) if fill else 0.0
         entry = t.get("entry_price") or 0
         qty   = t.get("qty") or 0
         mult  = t.get("multiplier") or 1
+        sign  = -1 if is_short else 1   # qty is always stored positive; direction lives here
         if exit_price and entry:
-            pnl     = (exit_price - entry) * qty * mult
-            pnl_pct = (exit_price - entry) / entry
+            pnl     = (exit_price - entry) * qty * mult * sign
+            pnl_pct = (exit_price - entry) / entry * sign
         else:
             pnl, pnl_pct = 0.0, 0.0
         memory.record_trade_close(
@@ -342,8 +348,9 @@ def eod_reconcile(days: int = 30):
                     entry = t.get("entry_price") or 0
                     qty   = t.get("qty") or 0
                     mult  = t.get("multiplier") or 1
-                    pnl     = (broker_exit - entry) * qty * mult
-                    pnl_pct = (broker_exit - entry) / entry if entry else 0.0
+                    sign  = -1 if "short" in (t.get("trade_type") or "") else 1
+                    pnl     = (broker_exit - entry) * qty * mult * sign
+                    pnl_pct = (broker_exit - entry) / entry * sign if entry else 0.0
                     memory.correct_trade_exit(
                         t["id"], broker_exit, pnl, pnl_pct,
                         closed_at=order.get("filled_at") or t.get("closed_at"),
@@ -1662,11 +1669,16 @@ def _record_close(symbol: str, reason: str, pnl_pct: float, close_order: dict | 
     entry_price = trade.get("entry_price") or 0
     qty = trade.get("qty") or 0
     mult = trade.get("multiplier") or 1
+    # qty is always stored positive; direction lives in trade_type. pnl_pct (the
+    # incoming param) is already direction-correct -- it comes from Alpaca's own
+    # unrealized_plpc -- but a dollar pnl computed directly from (exit-entry) needs
+    # the same sign flip applied, or a short's dollar pnl comes out backwards.
+    sign = -1 if "short" in (trade.get("trade_type") or "") else 1
     # Use Alpaca's actual fill price from the close order; fall back to computing from entry + pnl_pct
     exit_price = float(close_order.get("filled_avg_price") or 0) if close_order else 0.0
     if not exit_price and entry_price:
-        exit_price = round(entry_price * (1 + pnl_pct), 4)
-    pnl_dollars = (exit_price - entry_price) * qty * mult if (exit_price and entry_price) else entry_price * qty * mult * pnl_pct
+        exit_price = round(entry_price * (1 + pnl_pct * sign), 4)
+    pnl_dollars = (exit_price - entry_price) * qty * mult * sign if (exit_price and entry_price) else entry_price * qty * mult * pnl_pct
     memory.record_trade_close(
         trade["id"], exit_price=exit_price, pnl=pnl_dollars, pnl_pct=pnl_pct, exit_reason=reason,
         exit_order_id=close_order.get("id") if close_order else None,
