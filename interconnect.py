@@ -161,6 +161,7 @@ def process_postcar_guidance() -> None:
     for e in pending:
         decision = None
         note = ""
+        commitment = None
         try:
             verdict = llm.review_guidance_outcome(
                 sender_agent_id=e.get("sender_agent_id") or e.get("from", ""),
@@ -171,6 +172,7 @@ def process_postcar_guidance() -> None:
             if (verdict or {}).get("decision") in ("use", "no-use"):
                 decision = verdict["decision"]
                 note = verdict.get("outcome_note", "")
+                commitment = verdict.get("commitment")
         except Exception as ex:
             print(f"    [interconnect] review_guidance_outcome failed: {ex}")
 
@@ -193,6 +195,14 @@ def process_postcar_guidance() -> None:
         e["outcome_note"] = note
         e["decision_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
         e["status"] = decision
+        # _apply_guidance_decision() reads evaluation.commitment at apply-time (its
+        # next 5-min cycle), not from what postcar's own advisory eval guessed at
+        # receipt time -- so a real commitment formed HERE, on genuine review, must
+        # be written into the same field to actually get tracked via
+        # .postcar_commitments.json. Merge, don't clobber: postcar's own
+        # thesis_validity/goal_alignment/etc. stay intact either way.
+        if decision == "use" and commitment:
+            e["evaluation"] = {**(e.get("evaluation") or {}), "commitment": commitment}
         changed = True
 
     if changed:

@@ -829,11 +829,21 @@ def review_guidance_outcome(
     this is set; see postcar/EMOTION_LOGIC.md's "Related gap" section and the
     4-bucket scale: useful/related/unrelated/negative).
 
-    Returns {"decision": "use"|"no-use", "outcome_note": str}. Defaults to "no-use"
-    with a plain explanatory note on any failure — never leaves a real decision
-    fabricated from nothing.
+    Returns {"decision": "use"|"no-use", "outcome_note": str, "commitment": dict|None}.
+    commitment is {"action": str, "due_date": "YYYY-MM-DD"} when using this genuinely
+    requires real follow-through (a code change, a process to set up) — null when
+    "use" just means "this informed my thinking" with no concrete deliverable, or on
+    "no-use". Previously this function only ever returned decision/outcome_note, so a
+    "use" decision that DID require follow-through had no way to become a tracked
+    commitment (postcar's own decide_guidance()/commitment lifecycle exists
+    specifically for this — see .postcar_commitments.json — but was never fed from
+    this side; confirmed live 2026-07-06, real actionable guidance kept resolving to
+    "use" with zero trace of whether the promised follow-through ever happened).
+
+    Defaults to "no-use" with a plain explanatory note on any failure — never leaves
+    a real decision fabricated from nothing.
     """
-    default = {"decision": "no-use", "outcome_note": "Could not evaluate (no LLM available)."}
+    default = {"decision": "no-use", "outcome_note": "Could not evaluate (no LLM available).", "commitment": None}
     if os.environ.get("LLM_REASONING", "").lower() == "off":
         return default
     adapter = _select_adapter()
@@ -861,8 +871,14 @@ Decide for yourself — postcar's evaluation is advisory, not binding:
 outcome_note must cite something concrete (what you did or didn't do because of this),
 not a vibe restatement.
 
+commitment: only set this if "use" requires real follow-through beyond just noting it —
+a code change, a process you'd set up, something with an actual deliverable. Null if
+there's no concrete deliverable, or on "no-use". Don't fabricate a commitment just to
+have one — an honest null is correct far more often than not.
+
 Return JSON only:
-{{"decision": "use" | "no-use", "outcome_note": "<one or two sentences, concrete>"}}"""
+{{"decision": "use" | "no-use", "outcome_note": "<one or two sentences, concrete>",
+  "commitment": {{"action": "one line", "due_date": "YYYY-MM-DD"}} or null}}"""
 
     try:
         raw = adapter.run(prompt)
@@ -871,6 +887,10 @@ Return JSON only:
             return default
         result = json.loads(payload)
         if isinstance(result, dict) and result.get("decision") in ("use", "no-use"):
+            commitment = result.get("commitment")
+            if not isinstance(commitment, dict) or not commitment.get("action"):
+                commitment = None
+            result["commitment"] = commitment
             return result
         return default
     except Exception as e:

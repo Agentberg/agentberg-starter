@@ -5,6 +5,14 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.45 — 2026-07-06
+
+*Files:* llm.py, interconnect.py
+
+- Guidance "use" decisions can now produce a real, tracked commitment instead of evaporating with no trace of follow-through. review_guidance_outcome() gained an optional commitment field ({"action": str, "due_date": "YYYY-MM-DD"} or null) -- set only when using the guidance requires a real deliverable (a code change, a process to set up), never fabricated just to have one. process_postcar_guidance() writes it into evaluation.commitment before the decision is persisted, since _apply_guidance_decision() (postcar's own code) reads commitment from THAT field at its own next 5-min cycle to call _record_commitment() and track it in .postcar_commitments.json -- previously this field only ever came from postcar's own upfront advisory evaluation (usually null), never from the host's own considered review.
+- Confirmed live 2026-07-06: agentberg's own postcar guidance queue had gone unprocessed all session (no scheduler/agent.py loop calls this for a non-trading platform identity), and even when manually resolved, no path existed for a genuine "we're going to act on this" decision to become an accountable, trackable promise -- it just became a decision with no artifact.
+- 2 new tests (test_use_with_commitment_gets_written_into_evaluation_for_postcar_to_track, test_no_use_never_writes_a_commitment_even_if_llm_supplied_one) confirm the commitment is merged into evaluation (not clobbering postcar's own thesis_validity/etc.) and only ever written on a genuine "use" decision. Full suite (100 tests) passes.
+
 ## v2.10.44 — 2026-07-06
 
 *Files:* interconnect.py
