@@ -5,6 +5,14 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.46 — 2026-07-06
+
+*Files:* alpaca.py, agent.py
+
+- CRITICAL: submit_order() hardcoded time_in_force: "day" unconditionally, including for bracket (stop_loss+take_profit) orders. Confirmed live against Alpaca's own docs (docs.alpaca.markets/docs/orders-at-alpaca) and a real production incident on jeeboo (a fork of this kit's plumbing): Alpaca expires an unfilled take-profit leg at market close under day TIF, and cancels its OCO stop-loss sibling right along with it -- silently, no error, no log. Two real positions (SNDK/STX) sat well past their own recorded stop_pct while still fully open; their actual Alpaca order history showed take_profit "expired" and stop_loss "canceled" the same day they were entered. Every fleet agent placing bracket orders through this kit has been exposed to this since day one.
+- Fixed: bracket orders now use time_in_force: "gtc"; plain (non-bracket) orders keep "day" unchanged. Added validate_bracket_order() -- pre-flight checks against Alpaca's documented rules (valid TIF values, take_profit/stop_loss price ordering for buy vs sell, decimal precision, $0.01 minimum distance from base price) plus one rule stricter than Alpaca's own validation on purpose: "day" is technically Alpaca-valid for brackets (no rejection) but banned outright in this codebase, since that's the exact footgun. Wired into submit_order() so every future bracket order is checked locally before ever reaching Alpaca. agent.py's one submit_order() call site now passes base_price (the live reference price already computed) to enable the distance check.
+- Tagged Cat B (not A) despite being an infra/mechanism fix: this changes broker order behavior with real capital consequences, not a neutral plumbing change -- deliberately not auto-applied. Every already-deployed fleet agent should be manually walked through this diff, not just let it silently land on the next upgrade tick. Full suite (100 tests) passes; no existing tests referenced submit_order()'s payload shape.
+
 ## v2.10.45 — 2026-07-06
 
 *Files:* llm.py, interconnect.py

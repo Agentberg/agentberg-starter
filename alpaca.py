@@ -14,6 +14,58 @@ from __future__ import annotations
 import datetime
 import httpx
 
+# Pre-flight checks against Alpaca's own documented order rules
+# (docs.alpaca.markets/docs/orders-at-alpaca), verified 2026-07-06 --
+# catches violations locally with a clear message instead of a vague 422.
+_VALID_BRACKET_TIF = {"day", "gtc"}  # Alpaca's own accepted values for bracket/OCO/OTO
+
+# Stricter than Alpaca's own validation on purpose: "day" IS a technically valid
+# TIF for a bracket order per Alpaca's rules (no rejection), which is exactly
+# the footgun -- it silently expires the take-profit leg at market close and
+# cancels its OCO stop-loss sibling right along with it, leaving the position
+# completely unprotected with no error anywhere. Confirmed live 2026-07-06 on
+# jeeboo (a fork of this kit's plumbing): two real positions (SNDK/STX) sat
+# well past their own recorded stop_pct while still open -- their actual
+# Alpaca order history showed take_profit "expired" and stop_loss "canceled"
+# the same day they were entered, because this exact submit_order() hardcoded
+# time_in_force: "day" unconditionally. This codebase never wants that, so
+# it's banned here even though Alpaca itself would happily accept it.
+_BANNED_BRACKET_TIF = {"day"}
+
+
+def _price_decimals_ok(price: float) -> bool:
+    """Alpaca: prices >= $1 allow max 2 decimals, prices < $1 allow max 4."""
+    s = f"{price:.10f}".rstrip("0").rstrip(".")
+    decimals = len(s.split(".")[1]) if "." in s else 0
+    return decimals <= (2 if price >= 1 else 4)
+
+
+def validate_bracket_order(side: str, stop_loss_price: float, take_profit_price: float,
+                            time_in_force: str, base_price: float | None = None) -> None:
+    """Raises ValueError with a specific reason if the bracket order violates a
+    documented Alpaca rule, OR this codebase's own stricter safety rule (no day-TIF
+    brackets, ever). Call before submitting -- cheap, no network call."""
+    if time_in_force not in _VALID_BRACKET_TIF:
+        raise ValueError(
+            f"Bracket/OCO/OTO orders only support time_in_force in {_VALID_BRACKET_TIF} "
+            f"per Alpaca's own docs, got {time_in_force!r}"
+        )
+    if time_in_force in _BANNED_BRACKET_TIF:
+        raise ValueError(
+            f"time_in_force={time_in_force!r} is valid per Alpaca but banned in this "
+            f"codebase for brackets -- it silently expires protective legs at market "
+            f"close with no error (confirmed live 2026-07-06). Use 'gtc'."
+        )
+    if side == "buy" and take_profit_price <= stop_loss_price:
+        raise ValueError(f"Buy bracket: take_profit ({take_profit_price}) must be > stop_loss ({stop_loss_price})")
+    if side == "sell" and take_profit_price >= stop_loss_price:
+        raise ValueError(f"Sell bracket: take_profit ({take_profit_price}) must be < stop_loss ({stop_loss_price})")
+    for label, price in (("stop_loss", stop_loss_price), ("take_profit", take_profit_price)):
+        if not _price_decimals_ok(price):
+            raise ValueError(f"{label} price {price} exceeds Alpaca's decimal precision (2dp >=$1, 4dp <$1)")
+        if base_price is not None and abs(price - base_price) < 0.01:
+            raise ValueError(f"{label} price {price} must be >= $0.01 from base price {base_price}")
+
 
 class AlpacaClient:
 
@@ -108,13 +160,19 @@ class AlpacaClient:
         limit_price: float = None,
         stop_loss_price: float = None,
         take_profit_price: float = None,
+        base_price: float = None,
     ) -> dict:
+        """base_price (optional): the live reference price the caller computed
+        stop/target from — enables validate_bracket_order()'s $0.01-minimum-
+        distance check. Omit only when no such reference exists."""
         payload = {
             "symbol": ticker,
             "qty": qty,
             "side": side,
             "type": order_type,
-            "time_in_force": "day",
+            # Bracket orders MUST be "gtc" -- "day" silently kills protection,
+            # see _BANNED_BRACKET_TIF above. Plain (non-bracket) orders keep "day".
+            "time_in_force": "gtc" if stop_loss_price else "day",
         }
         if limit_price is not None:
             payload["limit_price"] = str(limit_price)
@@ -122,6 +180,8 @@ class AlpacaClient:
             # Bracket order — Alpaca requires BOTH stop_loss and take_profit.
             if take_profit_price is None:
                 raise ValueError(f"Alpaca bracket orders require take_profit_price alongside stop_loss_price for {ticker}")
+            validate_bracket_order(side, stop_loss_price, take_profit_price,
+                                    payload["time_in_force"], base_price=base_price)
             payload["order_class"] = "bracket"
             payload["stop_loss"]   = {"stop_price": str(round(stop_loss_price, 2))}
             payload["take_profit"] = {"limit_price": str(round(take_profit_price, 2))}

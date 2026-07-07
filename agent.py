@@ -1054,7 +1054,8 @@ def run_session():
                 stop_price        = round(live_price * (1 - stop_pct),   2) if side == "buy" else round(live_price * (1 + stop_pct),   2)
                 take_profit_price = round(live_price * (1 + target_pct), 2) if side == "buy" else round(live_price * (1 - target_pct), 2)
                 order    = _alpaca.submit_order(ticker, qty, side,
-                               stop_loss_price=stop_price, take_profit_price=take_profit_price)
+                               stop_loss_price=stop_price, take_profit_price=take_profit_price,
+                               base_price=live_price)
                 # Use Alpaca's actual fill price; fall back to pre-order snapshot only if not yet filled
                 entry_price = float(order.get("filled_avg_price") or 0) or live_price
                 # Network registration is deferred to reconcile_ledger()'s fill-
