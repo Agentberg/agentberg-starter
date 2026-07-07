@@ -719,6 +719,8 @@ def run_session():
         nonlocal _injected_market
         if ticker in candidate_tickers:
             return
+        if sector_hint and sector_hint in blocked_sectors:
+            return
         try:
             bars = _alpaca.get_bars(ticker, timeframe="1Day", limit=40)
             if len(bars) < 2:
@@ -769,6 +771,32 @@ def run_session():
 
     if _injected_market:
         print(f"    Injected {_injected_market} candidate(s) from pre-market/social heat signals")
+
+    # ── Step 3 (cont): Network universe injection (S&P 500) ──────────────────
+    # Optional depth beyond your own WATCHLIST, sourced from the catalog's
+    # universe-sp500 skill (see knowledge.py::extract_universe_tickers()).
+    # Capped and clearly source-tagged -- this only adds scan candidates, it
+    # never touches risk_params.py or your own sector/sizing rules.
+    _MAX_NETWORK_UNIVERSE = 100
+    network_universe = knowledge.extract_universe_tickers(catalog_skills)
+    if network_universe:
+        own_tickers = candidate_tickers | {t for v in cfg.WATCHLIST.values() for t in v}
+        universe_added = 0
+        for sector, tickers in network_universe.items():
+            if sector in blocked_sectors:
+                continue
+            for ticker in tickers:
+                if universe_added >= _MAX_NETWORK_UNIVERSE:
+                    break
+                if ticker in own_tickers:
+                    continue
+                own_tickers.add(ticker)
+                _try_inject(ticker, sector, "network_universe")
+                universe_added += 1
+            if universe_added >= _MAX_NETWORK_UNIVERSE:
+                break
+        if universe_added:
+            print(f"    Scanned {universe_added} additional candidate(s) from network S&P 500 universe (capped at {_MAX_NETWORK_UNIVERSE})")
 
     print(f"    {len(candidates)} candidate(s) before enrichment")
     _funnel_momentum = len(candidates)

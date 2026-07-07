@@ -152,7 +152,7 @@ def _ver(s: str) -> tuple:
 
 _CATALOG_CACHE = os.path.join(os.path.dirname(__file__), "thesis_catalog.json")
 _CATALOG_MAX_FETCH = 5   # max catalog skills fetched per session (keeps startup fast)
-_STANDARD_BUNDLE   = {"regime", "risk_calendar", "health", "rotation", "narrative"}
+_STANDARD_BUNDLE   = {"regime", "risk_calendar", "health", "rotation", "narrative", "universe-sp500"}
 
 # Fetching priority: thesis/commodity skills discovered first (highest value);
 # sector skills last (already covered by the standard skill manifest flow).
@@ -244,6 +244,25 @@ def match_catalog_skills(thesis: dict, catalog_entries: list) -> list:
             continue
 
     return matched
+
+
+def extract_universe_tickers(fetched_skills: dict) -> dict[str, list[str]]:
+    """Pull the network-sourced ticker universe (currently: universe-sp500) out of
+    fetched catalog skills, grouped by sector. Returns {} if that skill wasn't
+    fetched (offline, server error, or not yet in the catalog) -- callers should
+    treat this as purely additive to their own WATCHLIST, never a replacement."""
+    by_sector: dict[str, list[str]] = {}
+    for skill_id, skill in (fetched_skills or {}).items():
+        if skill.get("category") != "universe":
+            continue
+        constituents = (skill.get("content") or {}).get("constituents") or []
+        for c in constituents:
+            ticker = c.get("ticker")
+            sector = c.get("sector") or "Unknown"
+            if not ticker:
+                continue
+            by_sector.setdefault(sector, []).append(ticker)
+    return by_sector
 
 
 def sync_catalog(client, session_thesis: dict | None = None) -> dict:

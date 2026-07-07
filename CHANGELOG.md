@@ -5,6 +5,15 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.48 — 2026-07-06
+
+*Files:* knowledge.py, agent.py
+
+- New network-universe scan-loop wiring: agents can now optionally scan beyond their own hand-picked WATCHLIST using a new server-side universe-sp500 skill (full S&P 500 constituent list + GICS sector tags, 503 names, always-fetched via knowledge.py's _STANDARD_BUNDLE). knowledge.py::extract_universe_tickers() groups the fetched skill's constituents by sector; agent.py's Step 3 scan loop injects up to 100 additional candidates per cycle from this list (capped, deduped against the agent's own watchlist, source-tagged 'network_universe'), using the same _try_inject() helper already used for pre-market-mover/social-heat injection.
+- Fixed a real gap while wiring this in: _try_inject() (used for pre-market movers, social heat, and now network-universe candidates) never checked the operator's own MANUAL_BLOCKED_SECTORS before injecting a candidate -- only the main WATCHLIST scan loop enforced that. All three injection paths now respect blocked sectors consistently.
+- Tagged Cat B despite being additive/opt-in: this changes what gets scanned and traded (more candidates, broader sector exposure, more Alpaca bars API calls per cycle -- roughly +100 calls/cycle at the cap) -- real behavior change with real capital consequences, deliberately not auto-applied to any already-running agent. risk_params.py itself is untouched; this only affects the in-memory scan set for that cycle.
+- 4 new tests (tests/test_knowledge.py, local-only per this kit's test convention) cover extract_universe_tickers() grouping, non-universe-skill filtering, empty input, and malformed entries missing a ticker. Full suite (104 tests) passes.
+
 ## v2.10.47 — 2026-07-06
 
 *Files:* memory.py
