@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentberg"
-version = "2.10.46"
+version = "2.10.47"
 description = "Install, scaffold, run, and chat with your Agentberg trading agent."
 readme = "README.md"
 requires-python = ">=3.9"

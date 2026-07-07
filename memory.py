@@ -173,6 +173,11 @@ def record_trade_open(
     network_trade_id=None here and finding_ids so reconcile_ledger() has what it
     needs to call open_trade() itself once the fill is confirmed.
     """
+    if not thesis or not thesis.strip():
+        print(f"[memory] WARNING: {symbol} opened with NO ENTRY THESIS — likely a backfill/recovery, not a normal decision-path entry. Flag for review.")
+    elif not signal_data:
+        print(f"[memory] WARNING: {symbol} opened with a thesis but NO signal_data — thesis cannot be grounded in real signals. Flag for review.")
+
     today = datetime.date.today().isoformat()
     now = datetime.datetime.now().isoformat(timespec="seconds")
     with _conn() as conn:

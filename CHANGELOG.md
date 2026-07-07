@@ -5,6 +5,14 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.47 — 2026-07-06
+
+*Files:* memory.py
+
+- record_trade_open() now prints a loud (non-blocking) warning when a trade opens with no entry_thesis, or with a thesis but no signal_data -- previously both were silently accepted with no visibility.
+- Confirmed live 2026-07-06 on jeeboo (a fork of this kit's plumbing): 9 of 11 open positions had entry_thesis populated only via a manual backfill/recovery script after a broker-reconciliation bug, with signal_data left null for all of them -- silent and invisible until a direct DB audit surfaced it. The normal decision-path entry (agent.py building thesis from the real signal + AI reason) already guarantees a real thesis for every trade that goes through it; this warning exists for the rare case something bypasses that path (manual recovery, a future bug, a fork), so the gap is loud instead of silent.
+- Non-blocking by design -- legitimate backfills/recoveries of real broker positions still need to write a trade record even with no live signal_data; this only makes that visible in logs, it does not refuse the write. Same fix already applied to jeeboo directly.
+
 ## v2.10.46 — 2026-07-06
 
 *Files:* alpaca.py, agent.py
