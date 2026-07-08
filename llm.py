@@ -281,6 +281,26 @@ def _select_adapter():
     return None
 
 
+_active_provider_cache = None  # resolved once per process, not once per rank call
+
+
+def active_provider_name() -> str:
+    """What's actually ranking candidates THIS session -- 'claude'/'gemini'/etc, or
+    'rule_based' if no adapter is available. Distinct from the LLM_PROVIDER env var:
+    that's the operator's config, this is the real outcome after availability checks.
+
+    Confirmed field incident: an agent ran rule-based fallback silently for days
+    (no configured LLM CLI) before it was caught by manual debugging -- the fallback
+    prints to the console every session, but a headless/scheduled agent's console
+    output sits in a log file nobody actively tails. Callers should surface this in
+    the heartbeat payload so it's visible on the operator's dashboard instead."""
+    global _active_provider_cache
+    if _active_provider_cache is None:
+        adapter = _select_adapter()
+        _active_provider_cache = adapter.NAME if adapter else "rule_based"
+    return _active_provider_cache
+
+
 def rank_candidates(
     candidates: list[dict],
     regime: str,

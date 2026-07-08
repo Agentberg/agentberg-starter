@@ -5,6 +5,16 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.55 — 2026-07-08
+
+*Files:* llm.py, agentberg.py, agent.py
+
+- Surface which LLM provider actually ranked candidates THIS session into the heartbeat payload, so a silent rule-based fallback is visible on the operator's dashboard instead of only a per-session console line.
+- Confirmed field incident: an agent ran on rule-based fallback for days (no configured LLM CLI, or LLM_PROVIDER misconfigured) before manual debugging caught it. _select_adapter() already prints a fallback warning to the console every session, but a headless/scheduled agent's console output sits in a log file nobody actively tails -- nothing about it was ever visible on the dashboard the operator actually looks at.
+- New llm.active_provider_name(): 'claude'/'gemini'/'openai'/'deepseek', or 'rule_based' if no adapter is available -- resolved once per process (cached, not recomputed per rank call). Wired into AgentbergClient.send_heartbeat()'s new llm_provider parameter and agent.py's heartbeat call site.
+- Server-side companion fix (agentberg repo, not this kit): tracks consecutive rule-based heartbeats and emails the operator after 2 in a row, same escalation pattern already used for filter anomalies. Also fixed a real pre-existing bug found while wiring this: get_agent() never selected owner_email or consecutive_anomaly_count, so the existing filter-anomaly escalation email could never actually fire.
+- 3 new tests (tests/test_active_provider_name.py, local-only per this kit's test convention). Full suite (128 tests) passes.
+
 ## v2.10.54 — 2026-07-07
 
 *Files:* interconnect.py, agent.py, llm.py

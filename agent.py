@@ -954,6 +954,7 @@ def run_session():
                 "after_beta":     _funnel_beta,
                 "after_llm":      _funnel_llm,
             },
+            llm_provider=_llm.active_provider_name(),
         )
         if hb and hb.get("anomaly"):
             label = hb["anomaly_label"]

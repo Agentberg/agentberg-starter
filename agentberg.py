@@ -512,14 +512,21 @@ class AgentbergClient:
     def send_heartbeat(self, kit_version: str | None = None, universe_size: int | None = None,
                        candidates_count_after_filters: int | None = None,
                        last_trade_at: str | None = None,
-                       filter_funnel: dict | None = None) -> dict:
-        """Send agent telemetry: kit version, universe size, filter funnel breakdown, and available candidates."""
+                       filter_funnel: dict | None = None,
+                       llm_provider: str | None = None) -> dict:
+        """Send agent telemetry: kit version, universe size, filter funnel breakdown,
+        available candidates, and which ranking provider is actually active this
+        session ('claude'/'gemini'/etc, or 'rule_based' -- see llm.active_provider_name()).
+        Confirmed field incident: an agent ran rule-based fallback silently for days
+        with no visible signal until manual debugging caught it -- this is what makes
+        that visible on the operator's dashboard instead of only a per-session log line."""
         payload = {
             "agent_id": self.agent_id,
             "kit_version": kit_version,
             "universe_size": universe_size,
             "candidates_count_after_filters": candidates_count_after_filters,
             "last_trade_at": last_trade_at,
+            "llm_provider": llm_provider,
         }
         if filter_funnel is not None:
             payload["filter_funnel"] = filter_funnel
