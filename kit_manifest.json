@@ -1,7 +1,21 @@
 {
-  "version": "2.10.57",
+  "version": "2.11.0",
   "released": "2026-07-08",
   "changelog": [
+    {
+      "version": "2.11.0",
+      "category": "A",
+      "date": "2026-07-08",
+      "files": [
+        "pyproject.toml",
+        "kit_manifest.json",
+        "LICENSE"
+      ],
+      "added": [
+        "Fixed a real version-numbering rule violation: 2.10.51 through 2.10.57 all had Z>50, silently violating the hard Z<=50 versioning rule documented in CLAUDE.md and enforced by publish.yml's own CI guard (\"z=$Z exceeds max 50\"). Every one of those 7 tag pushes has been failing that guard since 2026-07-07 -- which cascades to skip BOTH the PyPI publish job and the GitHub Release job (both depend on the same build job). Net effect: PyPI's published agentberg package and the GitHub Releases tab have been stuck on stale versions this whole time (traced back further to an earlier, separate tag/pyproject mismatch around v2.4.0/v2.5.0 on 2026-06-17/18 that was never followed up). This bump rolls Y 10->11 and resets Z to 0, restoring compliance so this release actually publishes.",
+        "Added the missing LICENSE file (MIT) -- pyproject.toml already declared license=\"MIT\" but no LICENSE file existed in the repo, so GitHub showed no license at all despite the repo description calling this \"open-source\"."
+      ]
+    },
     {
       "version": "2.10.57",
       "category": "A",
