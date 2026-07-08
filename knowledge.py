@@ -152,7 +152,7 @@ def _ver(s: str) -> tuple:
 
 _CATALOG_CACHE = os.path.join(os.path.dirname(__file__), "thesis_catalog.json")
 _CATALOG_MAX_FETCH = 5   # max catalog skills fetched per session (keeps startup fast)
-_STANDARD_BUNDLE   = {"regime", "risk_calendar", "health", "rotation", "narrative", "universe-sp500"}
+_STANDARD_BUNDLE   = {"regime", "risk_calendar", "health", "rotation", "narrative"}
 
 # Fetching priority: thesis/commodity skills discovered first (highest value);
 # sector skills last (already covered by the standard skill manifest flow).

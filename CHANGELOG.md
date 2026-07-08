@@ -5,6 +5,15 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.50 — 2026-07-07
+
+*Files:* knowledge.py, agent.py
+
+- CRITICAL FIX to 2.10.48: the network-universe (S&P 500) scan-loop feature shipped as a silent no-op. Adding 'universe-sp500' to knowledge.py's _STANDARD_BUNDLE was based on a wrong assumption -- membership in that set EXCLUDES a skill from sync_catalog()'s fetch entirely (it exists so regime/risk_calendar/health/rotation/narrative, which are fetched via their own dedicated get_skill() calls elsewhere in agent.py, don't get double-fetched through the generic top-N catalog path). universe-sp500 has no such dedicated call, so it was never fetched anywhere -- catalog_skills never contained it, extract_universe_tickers() always returned {}, and the scan-loop injection block added zero candidates every single cycle since 2.10.48 shipped.
+- Confirmed live 2026-07-07 on gpower (already upgraded to 2.10.49, genuinely running the wired code): run.log showed 'Catalog: 5 fetched into context' every cycle with zero mention of network-universe injection, for every run since the upgrade landed.
+- Fix: removed universe-sp500 from _STANDARD_BUNDLE (restored to its original regime/risk_calendar/health/rotation/narrative set), and agent.py now fetches it directly via _agentberg.get_catalog_skill('universe-sp500') -- the same by-ID fetch sync_catalog() itself uses internally, called explicitly and unconditionally every session, matching the existing rotation/narrative pattern instead of competing for the matched-skill top-5 cap. Verified end-to-end against the live server: skill fetch returns 503 constituents, extract_universe_tickers() correctly groups them into 11 sectors.
+- Same Cat A classification as 2.10.48 -- this only fixes the fetch that makes the existing capped/deduped/blocked-sector-respecting injection logic actually run; no new behavior beyond what 2.10.48 already claimed to ship. Full suite (111 tests) passes.
+
 ## v2.10.49 — 2026-07-06
 
 *Files:* agent.py

@@ -469,6 +469,17 @@ def run_session():
     except Exception as e:
         print(f"    [catalog] failed ({e}) — continuing without catalog skills")
 
+    # universe-sp500 is fetched directly by ID, not via the matched/top-N path
+    # above -- sync_catalog()'s to_fetch deliberately excludes anything already
+    # covered by a dedicated fetch (same reason rotation/narrative below use
+    # their own get_skill() call instead of competing for the top-5 cap).
+    try:
+        universe_skill = _agentberg.get_catalog_skill("universe-sp500")
+        if universe_skill:
+            catalog_skills["universe-sp500"] = universe_skill
+    except Exception as e:
+        print(f"    [catalog] universe-sp500 fetch failed ({e})")
+
     # ── Step 0c: Intelligence snapshot ────────────────────────────────────────
     # Pre-computed signal from the server (15-min cache). Four enrichments:
     # finding velocity (momentum), regime win rates, tier-2+ agent consensus,
