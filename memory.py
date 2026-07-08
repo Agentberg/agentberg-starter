@@ -289,16 +289,6 @@ def record_session(portfolio_value: float, buying_power: float,
         )
 
 
-def record_sector_snapshot(sector: str, trade_count: int, win_count: int, net_pnl: float):
-    today = datetime.date.today().isoformat()
-    with _conn() as conn:
-        conn.execute(
-            """INSERT INTO sector_snapshots (session_date, sector, trade_count, win_count, net_pnl)
-               VALUES (?, ?, ?, ?, ?)""",
-            (today, sector, trade_count, win_count, net_pnl),
-        )
-
-
 # ── Publish gate ───────────────────────────────────────────────────────────────
 
 def was_published_today(category: str, sector: str | None = None) -> bool:

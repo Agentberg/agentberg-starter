@@ -5,6 +5,14 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.56 — 2026-07-08
+
+*Files:* journal.py, memory.py
+
+- Found via a full dead-code scan of the kit: memory.get_portfolio_history() was fully built (real data, written every session via record_session() into the sessions table) but never displayed anywhere. journal.py now prints a text sparkline equity curve (last 60 sessions) after the trade list -- start/end portfolio value, % change, date range. Silent no-op with fewer than 2 recorded sessions, never crashes on a fresh install.
+- Removed record_sector_snapshot(): confirmed fully dead end-to-end -- the only writer to sector_snapshots, never called anywhere, and no reader was ever built for that table either. The empty table itself is left in place (harmless schema, not worth a migration to drop it).
+- 5 new tests (tests/test_journal_equity_curve.py, local-only per this kit's test convention) cover the sparkline rendering and the 0/1/2+ session edge cases. Full suite (133 tests) passes.
+
 ## v2.10.55 — 2026-07-08
 
 *Files:* llm.py, agentberg.py, agent.py
