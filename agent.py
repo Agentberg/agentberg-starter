@@ -23,6 +23,7 @@ import time
 
 import character
 import config as cfg
+import interconnect
 import knowledge
 import memory
 import migrations
@@ -480,6 +481,24 @@ def run_session():
     except Exception as e:
         print(f"    [catalog] universe-sp500 fetch failed ({e})")
 
+    # Open/overdue commitments made when acting on peer guidance (see
+    # interconnect.process_postcar_guidance()) -- confirmed live 2026-07-07:
+    # postcar's own overdue check only ever logged to its sidecar log file,
+    # never reaching this decision loop, so a stated "I will trim this
+    # position by <date>" never actually got seen again once the date passed.
+    # Advisory only: surfaced into network_signals below so the LLM sees its
+    # own overdue promises, never auto-enforced.
+    open_commitments: list = []
+    try:
+        open_commitments = interconnect.get_open_commitments()
+        if open_commitments:
+            overdue = [c for c in open_commitments if c.get("status") == "overdue"]
+            print(f"    Commitments: {len(open_commitments)} open ({len(overdue)} overdue)")
+            for c in overdue[:5]:
+                print(f"      OVERDUE (due {c.get('due_date')}): {c.get('action','')[:100]}")
+    except Exception as e:
+        print(f"    [commitments] failed ({e})")
+
     # ── Step 0c: Intelligence snapshot ────────────────────────────────────────
     # Pre-computed signal from the server (15-min cache). Four enrichments:
     # finding velocity (momentum), regime win rates, tier-2+ agent consensus,
@@ -630,6 +649,7 @@ def run_session():
         "catalog_skills":        catalog_skills,
         "network_coverage":      coverage,
         "intelligence_snapshot": intelligence_snapshot,
+        "open_commitments":      open_commitments,
     }
 
     # ── Step 2: Portfolio state ────────────────────────────────────────────────

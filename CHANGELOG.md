@@ -5,6 +5,15 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.54 — 2026-07-07
+
+*Files:* interconnect.py, agent.py, llm.py
+
+- Closed a dead-end in the commitment-tracking loop shipped in 2.10.45: when the agent reviews peer guidance and decides to act on it, a real commitment gets written to .postcar_commitments.json with a due_date. postcar's own _check_commitments_overdue() correctly flags it overdue every cycle -- but only ever printed to postcar's own sidecar log file. Confirmed live 2026-07-07: agent.py never read .postcar_commitments.json at all, so a stated 'I will trim this position by <date>' promise never reached the process actually making trading decisions. Found while auditing 10 hours of fleet postcar conversations -- one agent had 37 tracked commitments (3 overdue) that were formally acknowledged and never followed up on.
+- Also found and left as a separate, still-open gap: postcar_check.get_active_guidance() is fully implemented but never called from agent.py or interconnect.py either -- same dead-code pattern, not fixed in this entry.
+- New interconnect.get_open_commitments(): refreshes overdue status via postcar's own _check_commitments_overdue() then returns open+overdue entries (never raises, [] if postcar unavailable). agent.py now calls this at Step 0b, prints a summary, and adds it to network_signals -- same pattern already used for catalog_skills/intelligence_snapshot. llm.py's _network_section() renders it into the LLM's own prompt, clearly separating overdue vs still-open.
+- Advisory only, matches the existing network-intel ruling (informs, never auto-enforced) -- no trading logic or threshold changes, Cat A. 9 new tests (4 in tests/test_interconnect.py, 5 in tests/test_open_commitments_prompt.py, local-only per this kit's test convention). Full suite (125 tests) passes.
+
 ## v2.10.53 — 2026-07-07
 
 *Files:* requirements.txt

@@ -213,6 +213,30 @@ def process_postcar_guidance() -> None:
             print(f"    [interconnect] guidance write failed: {e}")
 
 
+def get_open_commitments() -> list[dict]:
+    """Commitments made when acting on guidance ("use" a peer's advice with a
+    real deliverable, see process_postcar_guidance() above) but not yet marked
+    done via postcar_check.mark_commitment_done(). Confirmed live 2026-07-07:
+    postcar's own _check_commitments_overdue() correctly flags a commitment
+    as overdue every cycle, but only prints to its own sidecar log -- agent.py
+    never read .postcar_commitments.json at all, so an overdue promise never
+    reached the process actually making trading decisions. This is the read
+    side of that loop; agent.py is expected to surface the result into its
+    own session context and call mark_commitment_done() once something
+    actually ships. Returns [] if postcar isn't installed or the file is
+    empty/missing -- never raises."""
+    pc = _postcar()
+    if pc is None:
+        return []
+    try:
+        pc._check_commitments_overdue()  # refresh status against today's date first
+        entries = pc._load_commitments()
+    except Exception as e:
+        print(f"    [interconnect] commitments read failed: {e}")
+        return []
+    return [e for e in entries if e.get("status") in ("open", "overdue")]
+
+
 def _emotion_check_due() -> bool:
     try:
         if _EMOTION_STATE_FILE.exists():

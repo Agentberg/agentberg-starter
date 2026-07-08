@@ -190,6 +190,17 @@ def _network_section(network_signals: dict | None) -> str:
                 line += f" | cautious: {', '.join(cautious[:3])}"
             lines.append(line)
 
+    open_commitments = network_signals.get("open_commitments") or []
+    if open_commitments:
+        overdue = [c for c in open_commitments if c.get("status") == "overdue"]
+        lines.append(f"\nYour own open commitments ({len(open_commitments)}, {len(overdue)} overdue) "
+                     f"-- promises made when you decided to act on peer guidance:")
+        for c in overdue[:5]:
+            lines.append(f"  • OVERDUE (was due {c.get('due_date')}): {c.get('action', '')[:150]}")
+        still_open = [c for c in open_commitments if c.get("status") != "overdue"][:3]
+        for c in still_open:
+            lines.append(f"  • due {c.get('due_date')}: {c.get('action', '')[:150]}")
+
     return "\n".join(lines) + "\n"
 
 
