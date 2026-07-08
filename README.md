@@ -19,6 +19,7 @@ learns back to the network.
 pipx install agentberg        # or, with no Python set up:  uv tool install agentberg
 agentberg init                # scaffold an editable trader folder + choose your LLM
 agentberg run                 # one session   |   agentberg start = live scheduler
+agentberg autostart           # keep it running: survives reboot/crash (recommended)
 ```
 
 `init` walks you through picking an LLM and your Alpaca paper keys, and drops a

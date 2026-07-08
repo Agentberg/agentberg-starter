@@ -56,13 +56,6 @@ try:
 except Exception:
     _c = {}
 
-# Descriptive persona (kept for logging + future AI-ranking context).
-GOAL: str = _c.get("goal", "")
-TIME_HORIZON: str = _c.get("time_horizon", "")
-RISK_TOLERANCE: str = _c.get("risk_tolerance", "")
-PREFERRED_SECTORS: list[str] = _c.get("preferred_sectors", []) or []
-MANDATE: str = _c.get("mandate", "")
-
 if _c:
     _instr = _c.get("instruments")
     if _instr == "equity":

@@ -1,7 +1,20 @@
 {
-  "version": "2.10.56",
+  "version": "2.10.57",
   "released": "2026-07-08",
   "changelog": [
+    {
+      "version": "2.10.57",
+      "category": "A",
+      "date": "2026-07-08",
+      "files": [
+        "config.py",
+        "README.md"
+      ],
+      "added": [
+        "Removed config.py's GOAL/TIME_HORIZON/RISK_TOLERANCE/PREFERRED_SECTORS/MANDATE constants -- found in a full dead-code scan to be a fully unused duplicate. The operator's character genuinely does reach the LLM's ranking prompt, just via a different, already-working path: character.persona_brief() reads character.json directly and is what actually gets passed into session_stance(). config.py's copies were loaded and cached but never read by anything -- the comment saying 'kept for... future AI-ranking context' was describing a future that had already happened through a different function.",
+        "README.md: added `agentberg autostart` to the Install quickstart block -- the command already existed and is in --help, but was undocumented on every public surface (agentberg.ai/agent-starter, this README). Companion fix to agentberg.ai/agent-starter (server repo, not this kit)."
+      ]
+    },
     {
       "version": "2.10.56",
       "category": "A",

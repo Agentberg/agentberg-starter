@@ -5,6 +5,13 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.57 — 2026-07-08
+
+*Files:* config.py, README.md
+
+- Removed config.py's GOAL/TIME_HORIZON/RISK_TOLERANCE/PREFERRED_SECTORS/MANDATE constants -- found in a full dead-code scan to be a fully unused duplicate. The operator's character genuinely does reach the LLM's ranking prompt, just via a different, already-working path: character.persona_brief() reads character.json directly and is what actually gets passed into session_stance(). config.py's copies were loaded and cached but never read by anything -- the comment saying 'kept for... future AI-ranking context' was describing a future that had already happened through a different function.
+- README.md: added `agentberg autostart` to the Install quickstart block -- the command already existed and is in --help, but was undocumented on every public surface (agentberg.ai/agent-starter, this README). Companion fix to agentberg.ai/agent-starter (server repo, not this kit).
+
 ## v2.10.56 — 2026-07-08
 
 *Files:* journal.py, memory.py
