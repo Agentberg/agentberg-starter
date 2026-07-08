@@ -1,7 +1,22 @@
 {
-  "version": "2.10.50",
+  "version": "2.10.51",
   "released": "2026-07-07",
   "changelog": [
+    {
+      "version": "2.10.51",
+      "category": "A",
+      "date": "2026-07-07",
+      "files": [
+        "memory.py"
+      ],
+      "added": [
+        "CRITICAL: fixed a win_rate/losses miscounting bug across all 4 stats functions in memory.py (get_summary_stats, get_win_rate, get_sector_performance, compute_attribution). All computed losses = total - wins, which counts trades with pnl=0 or NULL (missing/corrupted exit data -- the same class of bug fixed in 2.10.46's bracket-order TIF fix) as losses, even though they have no resolved dollar outcome at all.",
+        "Confirmed live 2026-07-07 on gpower, one of our own directly-managed kit installs: its self-reported 'last 12 trades: 3W/9L, 25% win rate, -$102.34' was broadcast via postcar to the same 5-6 fleet peers roughly hourly for 10+ straight hours (10 separate query threads), almost all answered 'no relevant data'. The real number, pulled from the server: 3W/2L (60% win rate) -- 7 of those 12 trades had pnl=0.0 exactly (missing exit data), miscounted as 9 total losses instead of 2. The fabricated losing streak never resolves on its own because the underlying zero-pnl trades never become real wins or losses, so the stress trigger kept re-firing identically forever.",
+        "Fix: win_rate is now wins / (wins + losses), excluding pnl=0/NULL trades from both numerator and denominator -- a trade with no resolved outcome is neither a win nor a loss, not an automatic loss. get_sector_performance()'s trade_count (used as the min_trades sample-size gate for get_losing_sectors()/get_winning_sectors()) is left as the full count on purpose; only win_rate itself excludes flats.",
+        "This also feeds agent.py's sector-consensus finding publication threshold (win_rate >= 0.70 / <= 0.30) and the daily self-reflection step -- a sector could have been wrongly flagged as blocked/favored purely from accumulated missing-data trades, publishing a wrong claim to the whole network.",
+        "5 new tests (tests/test_win_rate.py, local-only per this kit's test convention) reproduce gpower's exact 3W/2L/7-flat pattern and confirm an all-flat trade history returns win_rate=0 rather than a fabricated 100% loss streak. Full suite (116 tests) passes."
+      ]
+    },
     {
       "version": "2.10.50",
       "category": "A",

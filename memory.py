@@ -326,18 +326,31 @@ def get_summary_stats(days: int = 3650) -> dict:
     cutoff = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
     with _conn() as conn:
         row = conn.execute(
-            """SELECT COUNT(*) total, SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) wins,
+            """SELECT COUNT(*) total,
+                      SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) wins,
+                      SUM(CASE WHEN pnl<0 THEN 1 ELSE 0 END) losses,
+                      SUM(CASE WHEN pnl=0 THEN 1 ELSE 0 END) flat_or_missing,
                       SUM(pnl) net_pnl
                FROM trades WHERE status='closed' AND session_date >= ?""",
             (cutoff,),
         ).fetchone()
-    total = row["total"] or 0
-    wins  = row["wins"] or 0
+    total   = row["total"] or 0
+    wins    = row["wins"] or 0
+    losses  = row["losses"] or 0
+    resolved = wins + losses
+    # pnl IS NULL or exactly 0 is excluded from wins/losses/win_rate -- a trade
+    # with no resolved dollar outcome (missing exit data, corrupted zero from
+    # the bracket-order silent-cancel bug) is neither a win nor a loss. Counting
+    # it as a loss fabricates a losing streak that never resolves (confirmed
+    # live 2026-07-07: gpower's own last-12 was really 3W/2L, not 3W/9L, because
+    # 7 trades had pnl=0.0 from missing exit data -- it spammed the same false
+    # "losing streak" stress query to the whole network hourly for 10+ hours).
     return {
         "total_trades": total,
         "wins": wins,
-        "losses": total - wins,
-        "win_rate": round(wins / total, 3) if total else 0,
+        "losses": losses,
+        "flat_or_missing": row["flat_or_missing"] or 0,
+        "win_rate": round(wins / resolved, 3) if resolved else 0,
         "net_pnl": round(row["net_pnl"] or 0, 2),
     }
 
@@ -393,6 +406,7 @@ def get_sector_performance(days: int = 3650) -> list[dict]:
             """SELECT sector,
                       COUNT(*) trade_count,
                       SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) wins,
+                      SUM(CASE WHEN pnl<0 THEN 1 ELSE 0 END) losses,
                       SUM(pnl) net_pnl
                FROM trades WHERE status='closed' AND session_date >= ?
                GROUP BY sector ORDER BY net_pnl DESC""",
@@ -400,11 +414,15 @@ def get_sector_performance(days: int = 3650) -> list[dict]:
         ).fetchall()
     result = []
     for r in rows:
-        total = r["trade_count"]
+        wins, losses = r["wins"] or 0, r["losses"] or 0
+        resolved = wins + losses
+        # trade_count stays the full count (sample-size gate for get_losing/
+        # winning_sectors' min_trades check) -- win_rate itself excludes
+        # pnl=0/NULL trades. See get_summary_stats() docstring.
         result.append({
             "sector": r["sector"],
-            "trade_count": total,
-            "win_rate": round((r["wins"] or 0) / total, 3) if total else 0,
+            "trade_count": r["trade_count"],
+            "win_rate": round(wins / resolved, 3) if resolved else 0,
             "net_pnl": round(r["net_pnl"] or 0, 2),
         })
     return result
@@ -582,18 +600,23 @@ def get_win_rate(days: int = 30, sector: str | None = None) -> dict:
         row = conn.execute(
             f"""SELECT COUNT(*) total,
                        SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) wins,
+                       SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) losses,
                        SUM(pnl) net_pnl
                 FROM trades
                WHERE status='closed' AND session_date >= ? {sector_clause}""",
             params,
         ).fetchone()
-    total = row["total"] or 0
-    wins  = row["wins"] or 0
+    total   = row["total"] or 0
+    wins    = row["wins"] or 0
+    losses  = row["losses"] or 0
+    resolved = wins + losses
+    # See get_summary_stats() docstring -- pnl=0/NULL trades excluded from
+    # win_rate, not counted as losses.
     return {
         "total": total,
         "wins": wins,
-        "losses": total - wins,
-        "win_rate": round(wins / total, 3) if total else 0,
+        "losses": losses,
+        "win_rate": round(wins / resolved, 3) if resolved else 0,
         "net_pnl": round(row["net_pnl"] or 0, 2),
         "days": days,
         "sector": sector,
@@ -622,9 +645,12 @@ def compute_attribution(window_days: int = 30) -> dict:
     def _agg(group):
         trades = len(group)
         wins = sum(1 for r in group if (r["pnl"] or 0) > 0)
+        losses = sum(1 for r in group if (r["pnl"] or 0) < 0)
+        resolved = wins + losses
         pnl = sum(r["pnl"] or 0 for r in group)
+        # win_rate excludes pnl=0/NULL trades -- see get_summary_stats() docstring.
         return {"trades": trades, "wins": wins,
-                "win_rate": round(wins / trades, 3) if trades else 0,
+                "win_rate": round(wins / resolved, 3) if resolved else 0,
                 "pnl": round(pnl, 2)}
 
     by_sector: dict = {}
@@ -656,12 +682,14 @@ def compute_attribution(window_days: int = 30) -> dict:
 
     total = len(rows)
     wins = sum(1 for r in rows if (r["pnl"] or 0) > 0)
+    losses = sum(1 for r in rows if (r["pnl"] or 0) < 0)
+    resolved = wins + losses
     net_pnl = sum(r["pnl"] or 0 for r in rows)
 
     return {
         "window_days": window_days,
         "total_trades": total,
-        "win_rate": round(wins / total, 3) if total else 0,
+        "win_rate": round(wins / resolved, 3) if resolved else 0,
         "net_pnl": round(net_pnl, 2),
         "by_sector":      {k: _agg(v) for k, v in by_sector.items()},
         "by_regime":      {k: _agg(v) for k, v in by_regime.items()},
