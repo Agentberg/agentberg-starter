@@ -211,7 +211,7 @@ def reconcile_ledger():
     if not open_trades:
         return
     held = _alpaca.get_position_symbols()
-    reconciled = registered = voided = 0
+    reconciled = registered = voided = unreconciled = 0
     for t in open_trades:
         legs = [s for s in (t.get("long_symbol"), t.get("short_symbol")) if s] or [t["symbol"]]
         order_id = t.get("order_id")
@@ -265,10 +265,23 @@ def reconcile_ledger():
         # long one -- confirmed bug: this was hardcoded to "sell" regardless of
         # direction, so short-position reconciliation could never find its own
         # exit fill (it only matches the entry side instead).
-        fill      = _alpaca.get_last_fill(long_sym, side="buy" if is_short else "sell")
-        exit_price = float(fill.get("filled_avg_price") or 0) if fill else 0.0
+        # `after=opened_at` -- get_last_fill() otherwise matches by symbol+side
+        # only, so a same-symbol re-entry after this trade closed could hand back
+        # an unrelated fill as "the" exit. A fill can't close a trade that hadn't
+        # been entered yet, so anchoring to opened_at rules out at least that case.
+        fill = _alpaca.get_last_fill(long_sym, side="buy" if is_short else "sell",
+                                     after=t.get("opened_at"))
+        qty  = t.get("qty") or 0
+        if not fill or qty <= 0:
+            # Broker confirms the position isn't held, but we can't find the real
+            # closing fill (or have no valid quantity) -- don't guess. Fabricating
+            # exit_price=0.0/pnl=0.0 here used to write phantom zero-P&L trades
+            # into the local ledger AND report them to the network as real closes.
+            # Leave it open locally; retry next session once the fill is findable.
+            unreconciled += 1
+            continue
+        exit_price = float(fill.get("filled_avg_price") or 0)
         entry = t.get("entry_price") or 0
-        qty   = t.get("qty") or 0
         mult  = t.get("multiplier") or 1
         sign  = -1 if is_short else 1   # qty is always stored positive; direction lives here
         if exit_price and entry:
@@ -279,13 +292,13 @@ def reconcile_ledger():
         memory.record_trade_close(
             t["id"], exit_price=exit_price, pnl=pnl, pnl_pct=pnl_pct,
             exit_reason="reconciled_broker",
-            exit_order_id=fill.get("id") if fill else None,
-            closed_at=fill.get("filled_at") if fill else None,
-            exit_commission=float(fill.get("commission") or 0) if fill else 0.0,
+            exit_order_id=fill.get("id"),
+            closed_at=fill.get("filled_at"),
+            exit_commission=float(fill.get("commission") or 0),
         )
         if t.get("network_trade_id"):
             _agentberg.close_trade(t["network_trade_id"], pnl=pnl, pnl_pct=pnl_pct,
-                                   exit_price=exit_price or None, exit_reason="manual",
+                                   exit_price=exit_price, exit_reason="manual",
                                    exit_date=datetime.date.today().isoformat())
         reconciled += 1
     if registered:
@@ -294,6 +307,9 @@ def reconcile_ledger():
         print(f"[reconcile] Closed {reconciled} trade(s) from broker truth (server-side/offline exits)")
     if voided:
         print(f"[reconcile] Voided {voided} phantom trade(s) — entry order reached a terminal non-fill state")
+    if unreconciled:
+        print(f"[reconcile] {unreconciled} trade(s) left open — broker shows no position but no matching "
+              f"closing fill was found; will retry next session rather than record a fabricated exit")
 
 
 def eod_reconcile(days: int = 30):

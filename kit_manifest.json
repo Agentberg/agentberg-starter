@@ -1,7 +1,21 @@
 {
-  "version": "2.11.0",
+  "version": "2.11.1",
   "released": "2026-07-08",
   "changelog": [
+    {
+      "version": "2.11.1",
+      "category": "A",
+      "date": "2026-07-08",
+      "files": [
+        "agent.py",
+        "alpaca.py"
+      ],
+      "added": [
+        "Fixed a real data-corruption bug found in a full network data-sanity sweep: agent.py::reconcile_ledger() fabricated exit_price=0.0 when a position was no longer held at the broker but the reconciler could not find the matching closing fill via get_last_fill(). It then unconditionally closed the trade locally with that fabricated 0.0, and 'exit_price=exit_price or None' silently coerced the 0.0 into None before reporting to agentberg.ai -- landing as exit_price:null, pnl:0.0 on the network. Confirmed on a live agent (gpower) running unmodified kit code -- this reproduces on any kit-based agent, not just gpower.",
+        "Fix: when no matching fill is found (or qty<=0), the trade is left open and retried next session instead of closed with a guessed value -- matches the \"wait, don't guess\" principle already used elsewhere in reconcile_ledger() for not-yet-terminal orders.",
+        "get_last_fill() gained an after= parameter (anchored to the trade's own opened_at) so a later, unrelated re-entry on the same symbol can no longer be handed back as the exit fill for an earlier trade it has nothing to do with."
+      ]
+    },
     {
       "version": "2.11.0",
       "category": "A",

@@ -334,17 +334,24 @@ class AlpacaClient:
             return False
         return order.get("status") in self._TERMINAL_UNFILLED_STATUSES
 
-    def get_last_fill(self, symbol: str, side: str | None = None, days: int = 60) -> dict | None:
+    def get_last_fill(self, symbol: str, side: str | None = None, days: int = 60,
+                       after: str | None = None) -> dict | None:
         """
         Most recent filled order for a symbol (optionally a given side), newest first.
         Used to reconcile a position that closed server-side (stop fired while app was
         off): the fill price here is the exit truth the local ledger never recorded.
+
+        `after` (ISO date/datetime) restricts the search to orders filled on/after that
+        point -- normally the trade's own entry time. Without it, this only matches by
+        symbol+side, so a later, unrelated re-entry on the same symbol can be handed
+        back as "the" exit fill for a trade it has nothing to do with.
         """
-        after = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+        window_start = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+        query_after = max(after[:10], window_start) if after else window_start
         try:
             orders = self._get("/v2/orders", params={
                 "status": "closed", "symbols": symbol, "limit": 100,
-                "after": after, "direction": "desc",
+                "after": query_after, "direction": "desc",
             })
         except Exception:
             return None
@@ -352,6 +359,8 @@ class AlpacaClient:
             if not o.get("filled_at"):
                 continue
             if side and o.get("side") != side:
+                continue
+            if after and o["filled_at"] < after:
                 continue
             return o
         return None
