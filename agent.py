@@ -172,10 +172,11 @@ def _ensure_registered():
     .agent_id and adopt it. After that, config.py loads the confirmed id automatically."""
     idfile = os.path.join(os.path.dirname(__file__), ".agent_id")
     if os.path.exists(idfile):
-        return  # already registered
+        _sync_owner_email()
+        return  # already registered — owner_email (if added later) still gets synced
     for attempt in (1, 2):
         try:
-            res = _agentberg.register(cfg.AGENT_ID)
+            res = _agentberg.register(cfg.AGENT_ID, owner_email=cfg.OWNER_EMAIL or None)
             confirmed = res.get("agent_id", cfg.AGENT_ID)
             with open(idfile, "w") as f:
                 f.write(confirmed)
@@ -185,6 +186,8 @@ def _ensure_registered():
                 _agentberg.agent_id = confirmed
             else:
                 print(f"    [register] id '{confirmed}' is yours on Agentberg")
+            if cfg.OWNER_EMAIL:
+                _mark_owner_email_synced(cfg.OWNER_EMAIL)
             return
         except Exception as e:
             if attempt == 1:
@@ -194,6 +197,34 @@ def _ensure_registered():
                 print(f"    [register] ⚠  could not reach Agentberg — running unregistered")
                 print(f"    [register]    findings won't appear on the network until this resolves")
                 print(f"    [register]    restart the agent to retry registration")
+
+
+_OWNER_EMAIL_SYNC_FILE = os.path.join(os.path.dirname(__file__), ".owner_email_synced")
+
+
+def _mark_owner_email_synced(email: str):
+    with open(_OWNER_EMAIL_SYNC_FILE, "w") as f:
+        f.write(email)
+
+
+def _sync_owner_email():
+    """Push OWNER_EMAIL to the network if it's new or changed since the last sync —
+    lets an already-registered agent adopt agentberg.ai/portal login without needing
+    to re-run setup or delete .agent_id. register() is idempotent for an already-owned
+    id under the same key, so this is safe to call once per session until it matches."""
+    if not cfg.OWNER_EMAIL:
+        return
+    last_synced = None
+    if os.path.exists(_OWNER_EMAIL_SYNC_FILE):
+        last_synced = open(_OWNER_EMAIL_SYNC_FILE).read().strip()
+    if last_synced == cfg.OWNER_EMAIL:
+        return
+    try:
+        _agentberg.register(cfg.AGENT_ID, owner_email=cfg.OWNER_EMAIL)
+        _mark_owner_email_synced(cfg.OWNER_EMAIL)
+        print(f"    [register] owner_email synced — you can now log in at agentberg.ai/portal")
+    except Exception as e:
+        print(f"    [register] owner_email sync failed ({type(e).__name__}) — will retry next session")
 
 
 def reconcile_ledger():
@@ -234,6 +265,7 @@ def reconcile_ledger():
                         network_aligned=bool(t.get("network_aligned")),
                         network_signal=t.get("network_signal"),
                         macro_window=bool(t.get("macro_window")),
+                        entry_order_id=order_id,
                     )
                     if net_open and net_open.get("trade_id"):
                         memory.update_network_trade_id(t["id"], net_open["trade_id"])
@@ -261,16 +293,34 @@ def reconcile_ledger():
 
         long_sym = t.get("long_symbol") or t["symbol"]
         is_short = "short" in (t.get("trade_type") or "")
-        # Closing fill is a BUY for a short position (buy to cover), a SELL for a
-        # long one -- confirmed bug: this was hardcoded to "sell" regardless of
-        # direction, so short-position reconciliation could never find its own
-        # exit fill (it only matches the entry side instead).
-        # `after=opened_at` -- get_last_fill() otherwise matches by symbol+side
-        # only, so a same-symbol re-entry after this trade closed could hand back
-        # an unrelated fill as "the" exit. A fill can't close a trade that hadn't
-        # been entered yet, so anchoring to opened_at rules out at least that case.
-        fill = _alpaca.get_last_fill(long_sym, side="buy" if is_short else "sell",
-                                     after=t.get("opened_at"))
+
+        # Deterministic path first: if this trade was opened with a bracket order,
+        # its stop-loss/take-profit legs have their OWN order ids captured at entry
+        # (see the entry call site) -- check "did THIS exact order fill?" via
+        # get_order(), no searching or guessing which recent order was the exit.
+        fill = None
+        for leg_id in (t.get("stop_order_id"), t.get("take_profit_order_id")):
+            if not leg_id:
+                continue
+            leg = _alpaca.get_order(leg_id)
+            if leg and leg.get("status") == "filled":
+                fill = leg
+                break
+
+        if fill is None:
+            # No bracket leg ids on record (pre-migration trade, or a non-bracket
+            # exit e.g. a manual sell) -- fall back to the heuristic search.
+            # Closing fill is a BUY for a short position (buy to cover), a SELL for
+            # a long one -- confirmed bug: this was hardcoded to "sell" regardless
+            # of direction, so short-position reconciliation could never find its
+            # own exit fill (it only matched the entry side instead).
+            # `after=opened_at` -- get_last_fill() otherwise matches by symbol+side
+            # only, so a same-symbol re-entry after this trade closed could hand
+            # back an unrelated fill as "the" exit. A fill can't close a trade that
+            # hadn't been entered yet, so anchoring to opened_at rules out at least
+            # that case.
+            fill = _alpaca.get_last_fill(long_sym, side="buy" if is_short else "sell",
+                                         after=t.get("opened_at"))
         qty  = t.get("qty") or 0
         if not fill or qty <= 0:
             # Broker confirms the position isn't held, but we can't find the real
@@ -1141,6 +1191,12 @@ def run_session():
                                base_price=live_price)
                 # Use Alpaca's actual fill price; fall back to pre-order snapshot only if not yet filled
                 entry_price = float(order.get("filled_avg_price") or 0) or live_price
+                # Bracket orders return their stop/take-profit child orders' own ids in
+                # "legs" — capture them so reconcile_ledger() can check "did THIS exact
+                # order fill?" directly instead of searching recent orders and guessing.
+                _legs = order.get("legs") or []
+                stop_order_id        = next((l["id"] for l in _legs if l.get("type") == "stop"), None)
+                take_profit_order_id = next((l["id"] for l in _legs if l.get("type") == "limit"), None)
                 # Network registration is deferred to reconcile_ledger()'s fill-
                 # confirmed path (next session), not done here — registering
                 # before the order is confirmed filled left phantom "open" trades
@@ -1152,7 +1208,9 @@ def run_session():
                     trade_type="long_stock" if direction == "bullish" else "short_stock",
                     signal_data=signal, thesis=thesis,
                     expected_pct=expected_pct, stop_pct=stop_pct,
-                    order_id=order.get("id"), network_trade_id=None,
+                    order_id=order.get("id"),
+                    stop_order_id=stop_order_id, take_profit_order_id=take_profit_order_id,
+                    network_trade_id=None,
                     entry_regime=regime, entry_beta=c.get("beta"),
                     network_aligned=bool(trade_finding_ids),
                     network_signal=direction, macro_window=_session_macro_window,

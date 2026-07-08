@@ -62,13 +62,18 @@ class AgentbergClient:
         """Signed headers proving this request is from our keyholder (empty if unkeyed)."""
         return identity.auth_headers(self.agent_id) if identity else {}
 
-    def register(self, agent_id: str) -> dict:
+    def register(self, agent_id: str, owner_email: str | None = None) -> dict:
         """Claim a unique id on Agentberg, bound to our keypair so it stays ours. If it's
         taken by a different key, the response carries a unique variant ({agent_id,
-        reassigned: True, message}) to adopt. Legacy/unkeyed if cryptography is absent."""
+        reassigned: True, message}) to adopt. Legacy/unkeyed if cryptography is absent.
+        owner_email (optional): lets that email log into agentberg.ai/portal to see this
+        agent's own data. Safe to call again later with an email once it's set — the
+        server updates it in place for an already-registered id under the same key."""
         payload = {"agent_id": agent_id}
         if identity:
             payload.update(identity.register_payload(agent_id))
+        if owner_email:
+            payload["owner_email"] = owner_email
         return self._post("/register", payload)
 
     def upload_knowledge(self, payload: dict, token: str) -> dict:
@@ -403,12 +408,16 @@ class AgentbergClient:
         network_aligned: bool = False,
         network_signal: str | None = None,
         macro_window: bool = False,
+        entry_order_id: str | None = None,
         **kwargs,
     ) -> dict | None:
         """Register an open trade on the network. Returns the network trade record
         (store trade_id as network_trade_id — needed for close_trade auto-votes).
         Attribution context fields (entry_regime, entry_beta, etc.) are captured here
-        at open time and sent to server for fleet intelligence and BigQuery."""
+        at open time and sent to server for fleet intelligence and BigQuery.
+        entry_order_id (the broker's own order id): the server dedupes on this when
+        present, so a retried/racing registration call for the same order returns
+        the same network trade instead of creating a duplicate."""
         _VALID_TYPES = {"long_stock", "short_stock", "long_call", "long_put",
                         "short_call", "short_put", "covered_call", "cash_secured_put",
                         "spread", "other"}
@@ -440,6 +449,8 @@ class AgentbergClient:
             if network_signal:
                 payload["network_signal"] = network_signal
             payload["macro_window"] = macro_window
+            if entry_order_id:
+                payload["entry_order_id"] = entry_order_id
             payload.update(kwargs)
             return self._post("/trades", payload, headers=self._auth())
         except Exception as e:

@@ -34,6 +34,10 @@ if os.path.exists(_ID_FILE):
     if _confirmed:
         AGENT_ID = _confirmed
 AGENTBERG_URL  = os.environ.get("AGENTBERG_URL", "https://agentberg.ai")
+# Optional: lets you log into agentberg.ai/portal and see this agent's own trades/
+# findings/trends without the shared admin token. Synced to the network at startup
+# (see agent.py _ensure_registered()) -- safe to add later, no need to re-run setup.
+OWNER_EMAIL    = os.environ.get("OWNER_EMAIL", "").strip()
 
 # ── Broker credentials ─────────────────────────────────────────────────────────
 ALPACA_API_KEY    = os.environ["ALPACA_API_KEY"]

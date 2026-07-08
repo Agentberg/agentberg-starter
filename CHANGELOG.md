@@ -5,6 +5,13 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.2 — 2026-07-08
+
+*Files:* config.py, agentberg.py, agent.py, .env.example
+
+- New optional OWNER_EMAIL config -- lets that email log into the new agentberg.ai/portal to see this agent own trades/findings/trend charts, no admin token needed. Wires through to AgentbergClient.register(), which already supported owner_email server-side but the kit never sent it.
+- Already-registered agents (the common case -- registration is one-time, guarded by .agent_id) now sync owner_email separately and idempotently on every startup until it matches what is configured, via a small .owner_email_synced marker -- adding OWNER_EMAIL to .env and restarting is enough, no need to re-run setup or touch .agent_id.
+
 ## v2.11.1 — 2026-07-08
 
 *Files:* agent.py, alpaca.py
