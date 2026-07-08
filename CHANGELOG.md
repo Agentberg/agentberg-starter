@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.53 — 2026-07-07
+
+*Files:* requirements.txt
+
+- Reverted 2.10.52's model2vec addition to requirements.txt. postcar-agent (the separate, independently-versioned sidecar repo) shipped its own fix in v0.5.8: _get_embed_model() now self-installs model2vec via pip on first use if missing, instead of requiring a manual step -- so this kit no longer needs to pre-declare it as a hard dependency. Keeps this kit's own stdlib-only design intact; postcar's self-install (one quiet pip install per process, cached after) is the only place that actually needed it.
+
 ## v2.10.52 — 2026-07-07
 
 *Files:* requirements.txt
