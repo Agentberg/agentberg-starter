@@ -5,6 +5,15 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.10.52 — 2026-07-07
+
+*Files:* requirements.txt
+
+- Added model2vec to requirements.txt so postcar's semantic dedup (_is_semantic_dupe) actually has its optional accuracy dependency available on every fresh install, not just the one install someone manually vendored weights on.
+- Confirmed live 2026-07-07 on gpower: without semantic embeddings, postcar's dedup falls back to difflib lexical matching (threshold 0.6), which measurably fails to catch LLM-reworded duplicate questions -- gpower broadcast the same underlying stress query, differently worded each time, to the same 5-6 peers roughly hourly for 10+ straight hours. Measured lexical similarity on 3 real reworded copies: 0.29-0.50, all below threshold.
+- The actual dedup-loading fix (_get_embed_model() now auto-downloading weights from HuggingFace Hub via model2vec's own from_pretrained(hf_id) instead of requiring a local vendored copy) lives in postcar-agent's own separate repo (github.com/postcar-agent/postcar-agent), not this kit -- postcar/ is cloned and self-updates independently, never vendored into agentberg-starter's own version control. Shipped there as v0.5.7.
+- This entry only covers what agentberg-starter itself controls: making sure the optional dependency is present in every agent's venv so postcar's own fix can actually take effect.
+
 ## v2.10.51 — 2026-07-07
 
 *Files:* memory.py
