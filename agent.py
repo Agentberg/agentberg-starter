@@ -1046,7 +1046,11 @@ def run_session():
     except Exception:
         kit_version = None
 
-    universe_size = sum(len(v) for v in cfg.WATCHLIST.values())
+    # Total candidate pool actually scanned this session (own watchlist + market-heat
+    # + network S&P 500 injection), not just the static WATCHLIST config size -- the
+    # old metric couldn't reflect network-universe injection at all (dashboard showed
+    # ~49 forever regardless of the up-to-100 additional names injected per session).
+    universe_size = _funnel_momentum
     hb = None
     try:
         hb = _agentberg.send_heartbeat(

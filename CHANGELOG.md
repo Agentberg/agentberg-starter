@@ -5,6 +5,13 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.5 — 2026-07-09
+
+*Files:* agent.py, scheduler_core.py
+
+- Fixed universe_size telemetry: it was computed as sum(len(v) for v in cfg.WATCHLIST.values()) -- the static local config size -- so the dashboard could never reflect the up-to-100 network S&P 500 candidates injected per session (universe-sp500 skill, shipped kit v2.10.48-v2.10.50). An agent scanning 139 real candidates showed universe_size=49 forever. Now sourced from _funnel_momentum, the actual post-injection candidate pool size for that session.
+- scheduler_core.py's lightweight liveness heartbeat (fires every wake cycle, has no live candidate data) no longer sends universe_size at all -- it was overwriting the accurate value from the last full session with the lower static watchlist approximation on every ping in between. Server COALESCEs the missing field onto the existing value, so the real number now persists between full sessions instead of flickering.
+
 ## v2.11.4 — 2026-07-09
 
 *Files:* memory.py, agent.py, alpaca.py

@@ -132,9 +132,13 @@ def send_network_heartbeat() -> None:
         manifest = Path(__file__).parent / "kit_manifest.json"
         if manifest.exists():
             kit_version = json.loads(manifest.read_text()).get("version")
-        universe_size = sum(len(v) for v in cfg.WATCHLIST.values())
+        # universe_size intentionally omitted here -- this lightweight liveness ping
+        # has no live candidate data (that only exists mid-session in agent.py). The
+        # server COALESCEs missing fields onto the existing value, so leaving it out
+        # preserves the real post-injection scan count from the last full session
+        # instead of clobbering it with a lower static watchlist-size approximation.
         AgentbergClient(cfg.AGENTBERG_URL, cfg.AGENT_ID).send_heartbeat(
-            kit_version=kit_version, universe_size=universe_size
+            kit_version=kit_version
         )
         log.debug("[heartbeat] sent")
     except Exception as e:
