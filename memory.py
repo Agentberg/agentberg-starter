@@ -199,7 +199,7 @@ def record_trade_open(
                 network_aligned, network_signal, macro_window,
                 candidates_ranked, rank_position, entry_commission, finding_ids)
                VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (symbol, sector, trade_type, entry_price, qty, today, now,
              json.dumps(signal_data) if signal_data else None,
              thesis, expected_pct, stop_pct,
@@ -565,6 +565,57 @@ def get_open_trades() -> list[dict]:
             "SELECT * FROM trades WHERE status='open' ORDER BY opened_at DESC"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_fabricated_closes() -> list[dict]:
+    """Trades wrongly closed by the reconcile_ledger() fabrication bug (fixed
+    kit v2.11.1, 2026-07-08) -- it used to fabricate exit_price=0.0 when it
+    couldn't find the real closing fill, then closed the trade with that
+    garbage data anyway. The fix stops NEW occurrences but does nothing for
+    trades already wrongly closed before an agent upgraded -- reconcile_ledger()
+    only ever looks at locally-'open' trades, so a wrongly-closed one is never
+    revisited on its own. Confirmed live 2026-07-09 on gpower: LLY was closed
+    this way on 2026-07-07 (one day before the fix shipped) while still
+    genuinely open at the broker, invisible to both local tracking and the
+    network from that point on. Matches the same exit_price=0/pnl=0/
+    exit_reason='reconciled_broker' signature already found and repaired
+    server-side across the whole network (agentberg.ai's
+    null_out_phantom_zero_pnl_trades()) -- this is the missing local half."""
+    with _conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM trades WHERE status='closed'
+               AND exit_price = 0 AND pnl = 0 AND exit_reason = 'reconciled_broker'"""
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def reopen_trade(trade_id: int) -> None:
+    """Revert a fabricated close back to 'open' and clear the garbage exit
+    fields, so it re-enters the normal reconcile_ledger() flow and gets a real
+    exit price/pnl whenever it actually closes for real."""
+    with _conn() as conn:
+        conn.execute(
+            """UPDATE trades SET status='open', exit_price=NULL, pnl=NULL,
+               pnl_pct=NULL, exit_reason=NULL, closed_at=NULL,
+               variance_pct=NULL, variance_reason=NULL
+               WHERE id=?""",
+            (trade_id,),
+        )
+
+
+def null_out_unknown_close(trade_id: int) -> None:
+    """The broker confirms this position is genuinely flat now, but the exit
+    price/pnl on record were fabricated (0.0), not real -- stays 'closed', but
+    the fabricated numbers get nulled rather than left presenting a fake $0.00
+    outcome as if it were a real one. Same honesty-over-guessing pattern as
+    agentberg.ai's null_out_phantom_zero_pnl_trades()."""
+    with _conn() as conn:
+        conn.execute(
+            """UPDATE trades SET exit_price=NULL, pnl=NULL, pnl_pct=NULL,
+               variance_pct=NULL, variance_reason=NULL
+               WHERE id=?""",
+            (trade_id,),
+        )
 
 
 def get_session_history(days: int = 60) -> list[dict]:

@@ -301,13 +301,22 @@ class AlpacaClient:
             return None
 
     def was_entry_filled(self, order_id: str | None) -> bool:
-        """True if the entry order reached 'filled' status.
-        Unknown/missing order_id returns True (safe default — don't void what we can't confirm)."""
+        """True only if the entry order is CONFIRMED 'filled'.
+
+        No order_id at all returns True (nothing to check against — matches the
+        historical no-info default). But a real order_id whose lookup fails
+        (timeout, rate limit, transient API error) returns False, not True — a
+        failed lookup means "unknown," not "confirmed." Returning True here used
+        to let reconcile_ledger() register an unconfirmed entry with the network
+        on nothing more than an API blip, with no way to walk the registration
+        back afterward (found live 2026-07-08 via the same bug reproducing on a
+        fork of this plumbing). "Unknown" must retry, never silently pass as
+        "yes" for something as consequential as a network trade registration."""
         if not order_id:
             return True
         order = self.get_order(order_id)
         if order is None:
-            return True
+            return False
         return order.get("status") == "filled"
 
     # Terminal order states where the entry genuinely will never fill — distinct

@@ -362,6 +362,44 @@ def reconcile_ledger():
               f"closing fill was found; will retry next session rather than record a fabricated exit")
 
 
+def repair_fabricated_closes():
+    """One-time-per-trade repair for damage done BEFORE the reconcile_ledger()
+    fabrication fix (kit v2.11.1, 2026-07-08): trades wrongly closed with a
+    fabricated exit_price=0.0/pnl=0.0 stay wrong forever on their own, since
+    reconcile_ledger() only ever looks at locally-'open' trades — a wrongly-
+    closed one is never revisited. Confirmed live 2026-07-09 on gpower: LLY
+    was closed this way one day before the fix shipped, still genuinely open
+    at the broker, invisible to local tracking and the network from that
+    point on. Cheap to run every session (the fabrication signature is narrow,
+    matched trades are rare) — no marker file needed, this just self-heals
+    indefinitely rather than needing a one-shot migration flag."""
+    suspects = memory.get_fabricated_closes()
+    if not suspects:
+        return
+    try:
+        held = {p["symbol"]: p for p in _alpaca.get_positions()}
+    except Exception as e:
+        print(f"[repair] could not fetch positions ({e}) — retry next session")
+        return
+    reopened = nulled = 0
+    for t in suspects:
+        sym = t.get("symbol")
+        if sym in held:
+            memory.reopen_trade(t["id"])
+            reopened += 1
+            print(f"[repair] {sym} (trade_id={t['id']}) was wrongly closed by the fabrication "
+                  f"bug — still genuinely open at the broker, reopened locally")
+        else:
+            memory.null_out_unknown_close(t["id"])
+            nulled += 1
+            print(f"[repair] {sym} (trade_id={t['id']}) really is closed now, but the exit "
+                  f"price/pnl on record were fabricated — nulled rather than left as a fake $0.00")
+    if reopened:
+        print(f"[repair] reopened {reopened} trade(s) wrongly closed by the pre-v2.11.1 fabrication bug")
+    if nulled:
+        print(f"[repair] nulled fabricated exit data on {nulled} trade(s) confirmed genuinely closed")
+
+
 def eod_reconcile(days: int = 30):
     """
     End-of-day: correct every broker-verifiable field against Alpaca's confirmed
@@ -478,6 +516,7 @@ def run_session():
     # ── Reconcile FIRST — rebuild close state from the broker before any publish/vote
     print("[reconcile] Syncing local ledger with broker...")
     reconcile_ledger()
+    repair_fabricated_closes()
 
     # ── Step 0: Skills — regime, risk calendar, market health ─────────────────
     print("[0] Loading skills...")

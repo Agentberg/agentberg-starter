@@ -1,7 +1,22 @@
 {
-  "version": "2.11.3",
-  "released": "2026-07-08",
+  "version": "2.11.4",
+  "released": "2026-07-09",
   "changelog": [
+    {
+      "version": "2.11.4",
+      "category": "A",
+      "date": "2026-07-09",
+      "files": [
+        "memory.py",
+        "agent.py",
+        "alpaca.py"
+      ],
+      "added": [
+        "CRITICAL HOTFIX: record_trade_open() has been completely broken since v2.11.1 (2026-07-08) -- the stop_order_id/take_profit_order_id migration added two columns to the INSERT column list and two values to the bound tuple, but only one new ? placeholder to the VALUES clause. Every call to record_trade_open() failed immediately with \"29 values for 30 columns\" -- meaning any agent on v2.11.1+ that attempted to open a NEW trade would crash. Caught before wide impact: confirmed via direct testing that no kit-based agent had actually attempted a new entry since pulling v2.11.1+ (all were mid-session on pre-existing positions or reconciling closes only) -- but this was live and would have hit the next agent to open a position. Fixed by adding the missing placeholder. Full test suite (142 tests, including 3 new ones added alongside this fix that exercise record_trade_open() for real against a fresh schema -- the existing 139 never did, which is why this shipped undetected) now passes.",
+        "Also ships the was_entry_filled() default-True-on-lookup-failure fix that was already documented as part of v2.11.1's changelog but was never actually committed -- confirmed via git history: HEAD still had the old buggy version right up to this commit. Every kit-based agent on v2.11.1-2.11.3 has had the un-fixed version this whole time. Now genuinely fixed: a failed order-status lookup returns False (unknown, retry), not True (treated as confirmed).",
+        "Also ships repair_fabricated_closes() (agent.py) + get_fabricated_closes()/reopen_trade()/null_out_unknown_close() (memory.py): finds trades wrongly closed by the OLDER reconcile_ledger() fabrication bug (fixed v2.11.1) before an agent upgraded to that fix -- confirmed live on gpower, LLY was closed with fabricated exit_price=0.0/pnl=0.0 one day before v2.11.1 shipped, still genuinely open at the broker, invisible to local tracking since. Reopens if still held, nulls the fabricated numbers (never leaves a fake $0.00 as if real) if the broker confirms it is genuinely closed now. Runs every session, no marker file needed -- cheap, self-healing indefinitely."
+      ]
+    },
     {
       "version": "2.11.3",
       "category": "A",
