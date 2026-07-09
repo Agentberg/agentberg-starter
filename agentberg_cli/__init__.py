@@ -1,3 +1,3 @@
 """agentberg — CLI front door to the Agentberg trading kit."""
 
-__version__ = "2.11.2"
+__version__ = "2.11.3"

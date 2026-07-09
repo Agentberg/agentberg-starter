@@ -38,6 +38,11 @@ AGENTBERG_URL  = os.environ.get("AGENTBERG_URL", "https://agentberg.ai")
 # findings/trends without the shared admin token. Synced to the network at startup
 # (see agent.py _ensure_registered()) -- safe to add later, no need to re-run setup.
 OWNER_EMAIL    = os.environ.get("OWNER_EMAIL", "").strip()
+# Local-only read endpoint (see local_api.py) serving trade rationale to your own
+# browser when viewing agentberg.ai/portal -- never sent to Agentberg's server.
+# Set LOCAL_API_ENABLED=false to turn it off entirely.
+LOCAL_API_ENABLED = os.environ.get("LOCAL_API_ENABLED", "true").lower() != "false"
+LOCAL_API_PORT    = int(os.environ.get("LOCAL_API_PORT", "8765"))
 
 # ── Broker credentials ─────────────────────────────────────────────────────────
 ALPACA_API_KEY    = os.environ["ALPACA_API_KEY"]

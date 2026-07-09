@@ -122,7 +122,13 @@ def init_db():
                          # broker-reported commission, entry and exit side (0 for most
                          # equity/options accounts, but not assumed — read from the order).
                          ("entry_commission", "REAL DEFAULT 0"),
-                         ("exit_commission", "REAL DEFAULT 0")]:
+                         ("exit_commission", "REAL DEFAULT 0"),
+                         # Bracket child order ids, captured from the entry order's own
+                         # response — lets reconcile_ledger() check "did THIS specific
+                         # order fill?" directly instead of searching recent orders for
+                         # the symbol and guessing which one was the real exit.
+                         ("stop_order_id", "TEXT"),
+                         ("take_profit_order_id", "TEXT")]:
             try:
                 conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
             except sqlite3.OperationalError:
@@ -145,6 +151,8 @@ def record_trade_open(
     short_symbol: str | None = None,
     multiplier: int = 1,
     order_id: str | None = None,
+    stop_order_id: str | None = None,
+    take_profit_order_id: str | None = None,
     network_trade_id: str | None = None,
     entry_regime: str | None = None,
     entry_beta: float | None = None,
@@ -185,22 +193,38 @@ def record_trade_open(
             """INSERT INTO trades
                (symbol, sector, trade_type, entry_price, qty, status, session_date,
                 opened_at, signal_data, entry_thesis, expected_pct, stop_pct,
-                long_symbol, short_symbol, multiplier, order_id, network_trade_id,
+                long_symbol, short_symbol, multiplier, order_id,
+                stop_order_id, take_profit_order_id, network_trade_id,
                 entry_regime, entry_beta, entry_iv, entry_dte,
                 network_aligned, network_signal, macro_window,
                 candidates_ranked, rank_position, entry_commission, finding_ids)
-               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (symbol, sector, trade_type, entry_price, qty, today, now,
              json.dumps(signal_data) if signal_data else None,
              thesis, expected_pct, stop_pct,
-             long_symbol or symbol, short_symbol, multiplier, order_id, network_trade_id,
+             long_symbol or symbol, short_symbol, multiplier, order_id,
+             stop_order_id, take_profit_order_id, network_trade_id,
              entry_regime, entry_beta, entry_iv, entry_dte,
              1 if network_aligned else 0, network_signal, 1 if macro_window else 0,
              candidates_ranked, rank_position, entry_commission,
              json.dumps(finding_ids) if finding_ids else None),
         )
         return cur.lastrowid
+
+
+def get_all_trade_rationale() -> list[dict]:
+    """Every trade's rationale, keyed by network_trade_id (the server's trade_id) —
+    for the local-only read endpoint (local_api.py). This data never leaves this
+    machine through any other path; the operator's own browser fetches it directly
+    when viewing agentberg.ai/portal, matched against network_trade_id."""
+    with _conn() as conn:
+        rows = conn.execute(
+            """SELECT network_trade_id, entry_thesis, expected_pct, stop_pct,
+                      variance_pct, variance_reason
+               FROM trades WHERE network_trade_id IS NOT NULL"""
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def update_network_trade_id(trade_id: int, network_trade_id: str) -> None:

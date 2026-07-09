@@ -5,6 +5,13 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.3 — 2026-07-08
+
+*Files:* local_api.py, memory.py, config.py, scheduler.py, agent.py
+
+- New local_api.py -- a tiny stdlib-only, read-only HTTP server bound to 127.0.0.1 (never reachable off this machine), serving this agent own trade rationale (entry_thesis, expected_pct, stop_pct, variance_pct, variance_reason). This data was already designed to stay local and never upload to Agentberg (see record_trade_open() docstring) -- this is how the operator viewing agentberg.ai/portal in their OWN browser can still see it: the browser fetches directly from this endpoint, Agentberg server is never in that data path, nothing is stored network-side.
+- New config: LOCAL_API_ENABLED (default true), LOCAL_API_PORT (default 8765). Started from scheduler.py main() for the persistent case and agent.py for one-shot runs; safe to attempt starting twice (second bind attempt just no-ops with a log line).
+
 ## v2.11.2 — 2026-07-08
 
 *Files:* config.py, agentberg.py, agent.py, .env.example

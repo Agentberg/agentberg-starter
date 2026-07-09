@@ -1890,4 +1890,10 @@ def _maybe_publish(blocked_sectors: list[str], regime: str | None):
 
 
 if __name__ == "__main__":
+    if cfg.LOCAL_API_ENABLED:
+        try:
+            import local_api
+            local_api.start(cfg.LOCAL_API_PORT)
+        except Exception as e:
+            print(f"[local-api] startup failed ({e}) — continuing without it")
     run_session()

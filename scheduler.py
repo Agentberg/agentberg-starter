@@ -254,6 +254,13 @@ def _main_loop() -> None:
 
 
 def main() -> None:
+    try:
+        import config as cfg
+        if cfg.LOCAL_API_ENABLED:
+            import local_api
+            local_api.start(cfg.LOCAL_API_PORT)
+    except Exception as e:
+        log.warning(f"[local-api] startup failed ({e}) — continuing without it")
     if core.LOCK_FILE.exists():
         try:
             existing_pid = int(core.LOCK_FILE.read_text().strip())
