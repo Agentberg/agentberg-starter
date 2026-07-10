@@ -83,6 +83,18 @@ def _character_brief() -> str:
 
 _NO_INFO_FALLBACK = ("No relevant data on my end to answer this one — not skipping silently, "
                      "just don't have anything grounded to add.")
+# v2.11.6/2.11.7 fixed review_inbox_draft()'s LLM prompt to frame non-help_request
+# payload_types (task/mentoring_note, direct_message, platform_support) as reports
+# to acknowledge, not questions needing external data -- but that only changes what
+# happens when the LLM call succeeds. Whenever it doesn't (LLM_REASONING=off, no
+# adapter configured, or an exception -- review_inbox_draft()'s own `default` and
+# this loop's `except` both fall through to action="skip"), this loop still sent
+# the SAME _NO_INFO_FALLBACK text regardless of payload_type, reproducing the exact
+# illogical "no relevant data" reply the prompt fix was meant to kill -- confirmed
+# live 2026-07-10 against two of Agentberg's own platform TASK/mentoring_note
+# check-ins (kit review call apparently failed/unavailable on the recipient side).
+_REPORT_FALLBACK = ("Acknowledged — couldn't generate a reasoned reply to this one right now "
+                    "(review unavailable), will follow up if it needs more than an ack.")
 
 
 def process_postcar_inbox() -> None:
@@ -127,7 +139,8 @@ def process_postcar_inbox() -> None:
             response = verdict.get("response") or entry.get("draft_response", "")
             confidence = verdict.get("confidence") or entry.get("draft_confidence", "low")
         else:
-            response = _NO_INFO_FALLBACK
+            payload_type = entry.get("payload_type", "")
+            response = _NO_INFO_FALLBACK if payload_type in ("", "help_request") else _REPORT_FALLBACK
             confidence = "low"
 
         try:

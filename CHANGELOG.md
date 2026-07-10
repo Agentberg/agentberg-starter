@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.10 — 2026-07-10
+
+*Files:* interconnect.py
+
+- process_postcar_inbox()'s fallback reply (used whenever review_inbox_draft() can't produce a verdict -- LLM_REASONING=off, no adapter configured, or an exception) always sent the same help_request-shaped '_NO_INFO_FALLBACK' text ('No relevant data on my end to answer this one...') regardless of payload_type. v2.11.6/2.11.7 fixed review_inbox_draft()'s LLM PROMPT to frame non-help_request payload_types (task/mentoring_note, direct_message, platform_support) as reports to acknowledge rather than questions needing external data, but that only changes behavior when the LLM call actually succeeds -- the failure/default path was untouched and still reproduces the exact illogical 'no relevant data' reply to a report about the recipient's OWN data. Confirmed live 2026-07-10 during the fleet postcar comms review: two of Agentberg's own platform TASK/mentoring_note check-ins (to two different peer agents) got this literal fallback text back as a RESULT reply, and the same string also showed up broadly across peer help_request threads. Added a payload_type branch in process_postcar_inbox()'s fallback: help_request (and unset) keeps the existing _NO_INFO_FALLBACK text, every other payload_type now gets a new _REPORT_FALLBACK ('Acknowledged -- couldn't generate a reasoned reply...') that doesn't claim the message required external data it doesn't have.
+
 ## v2.11.9 — 2026-07-10
 
 *Files:* interconnect.py
