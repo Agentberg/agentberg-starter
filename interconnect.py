@@ -260,10 +260,11 @@ def _mark_emotion_checked() -> None:
 
 
 def check_self_emotion() -> None:
-    """Throttled to once per _EMOTION_CHECK_INTERVAL_SECS (30 min). Evaluates recent
-    performance against EMOTION_LOGIC.md's fear/confusion/curiosity triggers (the
-    only three that actually dispatch anywhere today) and calls report_trigger()
-    directly when one genuinely applies — see llm.emotion_self_check()."""
+    """Runs once per _EMOTION_CHECK_INTERVAL_SECS (30 min) — this is now a SEND
+    cadence, not just a check cadence (2026-07-10, see llm.emotion_self_check()):
+    every due tick forces a fear/confusion/curiosity pick and calls
+    report_trigger() with it. Depends on postcar's semantic dedup to collapse
+    same-fact repeats into non-sends across ticks."""
     if not _emotion_check_due():
         return
     _mark_emotion_checked()

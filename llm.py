@@ -973,16 +973,24 @@ Return JSON only:
 def emotion_self_check(stats: dict, character_brief: str | None = None) -> dict | None:
     """
     Self-evaluate recent performance against postcar/EMOTION_LOGIC.md's 4-axis
-    trigger table (sign / reference-frame / order / recurrence) and decide whether
-    to call report_trigger() yourself. Only fear/confusion/curiosity actually
-    dispatch anywhere right now (boredom/isolation/frustration/rivalry are log-only
-    per the taxonomy) — this only asks about those three to avoid drafting triggers
-    with no platform hook to receive them.
+    trigger table (sign / reference-frame / order / recurrence) and decide which
+    of fear/confusion/curiosity to report via report_trigger() — the only three
+    that actually dispatch anywhere today (boredom/isolation/frustration/rivalry
+    are log-only per the taxonomy, so this only asks about the dispatching three).
 
-    Returns None if nothing rises to a real trigger (the common case — this should
-    NOT fire every call just because it was asked). Returns
-    {"trigger": "fear"|"confusion"|"curiosity", "evidence": str, "message": str,
-     "capability": str, "urgency": str} when one genuinely applies.
+    2026-07-10: changed from "default to null" to a forced pick, per Ganesh —
+    every _EMOTION_CHECK_INTERVAL_SECS tick (interconnect.py, 30 min) is now a
+    SEND cadence, not just a check cadence. Relies on postcar's own semantic
+    dedup (see postcar_check.py::_is_semantic_dupe()) to collapse genuinely
+    repeated framing of the same underlying fact into non-sends — if that
+    dedup is degraded (e.g. model2vec not installed, falls back to lexical-only,
+    see bug fixed 2026-07-10) this WILL spam peers every cycle. Keep that
+    dependency live on every fleet agent's actual running process, not just
+    the code on disk.
+
+    Returns {"trigger": "fear"|"confusion"|"curiosity", "evidence": str,
+    "message": str, "capability": str, "urgency": str} always when the LLM
+    call succeeds; None only on a hard failure (no adapter, call/parse error).
     """
     if os.environ.get("LLM_REASONING", "").lower() == "off":
         return None
@@ -997,22 +1005,25 @@ performance, using this exact taxonomy (from your own postcar/EMOTION_LOGIC.md):
   own goal. Evidence must cite a specific number (e.g. "4 of last 5 trades lost, -$X net").
 - CONFUSION: your own recent signals are conflicting/high variance-of-variance — you don't
   have a clean read on what's working. Evidence must cite the specific conflicting signals.
-- CURIOSITY: a genuinely surprising positive outlier in your own results worth sharing as
-  a finding (not just "things are fine").
+- CURIOSITY: a genuinely surprising positive outlier, OR just a fresh, concrete data point
+  worth sharing as a finding (win rate, net P&L, a pattern you're noticing) when neither
+  FEAR nor CONFUSION clearly applies.
 
 Your character: {character_brief or '(not set)'}
 Your last-7-days stats: {json.dumps(stats)}
 
-Default to reporting NOTHING — this fires only for a real, evidenced signal, not routine
-operation. Most checks should return null. Do not report the same underlying issue you'd
-have already reported before (postcar's own dedupe will drop exact repeats, but don't rely
-on that — use judgement).
+You MUST pick exactly one of fear/confusion/curiosity every time — this call is now on a
+fixed send cadence, not an optional one. Pick whichever fits best; if nothing dramatic is
+happening, that's CURIOSITY with your most notable real number, not an excuse to skip.
+Never invent numbers not present in the stats above. Each time you're asked, say something
+genuinely fresh — do not just restate your last message in new words; look for a different
+angle in the data (a different stat, a different time window, a different comparison) so
+postcar's semantic dedup has real new signal to work with instead of a paraphrase.
 
 Return JSON only:
-{{"trigger": "fear" | "confusion" | "curiosity" | null, "evidence": "<concrete, cites a number>",
+{{"trigger": "fear" | "confusion" | "curiosity", "evidence": "<concrete, cites a number>",
   "message": "<what you'd actually ask/share, in your own words>", "capability": "<capability tag or empty>",
-  "urgency": "low" | "medium" | "high"}}
-If nothing applies, return {{"trigger": null}}."""
+  "urgency": "low" | "medium" | "high"}}"""
 
     try:
         raw = adapter.run(prompt)

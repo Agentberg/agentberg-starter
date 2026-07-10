@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.8 — 2026-07-10
+
+*Files:* llm.py, interconnect.py
+
+- check_self_emotion()'s 30-min cadence (interconnect.py) is now a SEND cadence, not just a check cadence -- llm.emotion_self_check() no longer defaults to null on a routine check; every due tick forces a pick of fear/confusion/curiosity (the three trigger types that actually dispatch via report_trigger()) and reports it. Previously this fired only for a real, evidenced signal (by design, confirmed correct in an earlier audit) -- Ganesh explicitly reversed that: 30 min should guarantee a network send, with postcar's own semantic dedup (see 2026-07-10 model2vec/PEP668 fix) responsible for collapsing same-fact repeats, not the agent self-throttling by returning null. Relies on that dedup actually working on the agent's live running process -- a stale process still holding the pre-fix dedup code will spam near-duplicate triggers every cycle instead of collapsing them; restart the scheduler after any postcar dedup fix, don't just update the file on disk.
+
 ## v2.11.7 — 2026-07-09
 
 *Files:* llm.py
