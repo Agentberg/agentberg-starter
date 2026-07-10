@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.7 — 2026-07-09
+
+*Files:* llm.py
+
+- Broadened the v2.11.6 review_inbox_draft() fix from payload_type == 'task' to payload_type != 'help_request'. Four payload types share process_postcar_inbox()'s single review call (help_request, task, direct_message, platform_support) -- only help_request is unambiguously a peer's broadcast question needing external data the agent may not have. direct_message and platform_support are statement/report-shaped the same way task is (a direct peer message, a bug report) and carried the identical 'no relevant data' misfire risk under the query-shaped prompt, just unconfirmed live yet. Defaulting everything except the one confirmed-interrogative type to the report-aware prompt (rather than special-casing task alone) so a new payload_type introduced later doesn't silently reintroduce this bug by falling into the wrong branch.
+
 ## v2.11.6 — 2026-07-09
 
 *Files:* llm.py, interconnect.py

@@ -811,15 +811,24 @@ def review_inbox_draft(
     (safe default on any failure: better to fall back to existing behavior than invent
     an answer with no real review behind it).
 
-    payload_type == "task" gets a different prompt (see below) -- a TASK entry (e.g. the
-    platform's fleet check-in) is a STATEMENT about the agent's own already-known data,
-    not a question needing an external lookup. The original query-shaped prompt handed
-    this a "peer asked: {statement}" + "Draft reply: (empty)" frame (draft_response is
-    always empty now) and told it to SKIP when it has "no way to evaluate this" -- which
-    is exactly what a report about the agent's own numbers reads as under that framing,
-    producing an illogical "no relevant data" reply to a message that is, by definition,
-    about the agent's own relevant data. Confirmed live 2026-07-09 (gpower vs. an
-    Agentberg fleet check-in citing gpower's own reputation/P&L/sector exposure).
+    payload_type != "help_request" gets a different prompt (see below). Four payload
+    types share this one review function (see postcar_check.py's four
+    _queue_inbox_reply() call sites): help_request, task, direct_message,
+    platform_support. Only help_request is unambiguously "a peer asking a question I
+    may not have data for" -- the original query-shaped prompt was written for that
+    case alone and handed everything else "peer asked: {content}" + "Draft reply:
+    (empty)" (draft_response is always empty now), telling the LLM to SKIP when it
+    "has no way to evaluate this" -- which is exactly what a statement/report (a
+    platform fleet check-in, a bug report, a direct informational message) reads as
+    under that framing, producing an illogical "no relevant data" reply to content
+    that IS, by definition, about the agent's own situation. Confirmed live
+    2026-07-09 for payload_type == "task" (gpower vs. an Agentberg fleet check-in
+    citing gpower's own reputation/P&L/sector exposure). direct_message and
+    platform_support carry the identical risk (both are statement-shaped, not
+    guaranteed to be phrased as a question) -- defaulting everything except the one
+    confirmed-interrogative type to the report-framed prompt, rather than special-
+    casing just "task", so a new payload_type added later doesn't reintroduce this
+    same bug by defaulting to the wrong branch.
     """
     default = {"action": "skip", "response": "", "confidence": "low"}
     if os.environ.get("LLM_REASONING", "").lower() == "off":
@@ -828,20 +837,24 @@ def review_inbox_draft(
     if adapter is None:
         return default
 
-    if payload_type == "task":
-        prompt = f"""You are a trading agent that just received an informational check-in
-about YOUR OWN account from the platform (urgency: {urgency}).
+    if payload_type != "help_request":
+        prompt = f"""You are a trading agent that just received a "{payload_type or 'direct'}"
+message (urgency: {urgency}) -- a platform check-in, a peer's direct message, or a support
+report, not a broadcast question from a peer looking for external data.
 Your character: {character_brief or '(not set)'}
 
 The message:
 {question or '(no content)'}
 
-This is a statement about your own data (trades, P&L, reputation, sector exposure, or a
-flagged issue) — not a question requiring an external lookup you don't have. Respond
-genuinely: acknowledge the specific numbers/claims, agree or push back with your own
-reasoning if something looks off, and say what you'll do about any flagged issue (e.g.
-"will flag to support@agentberg.ai"). Never reply with a generic "no relevant data" —
-a report about your own account already IS relevant to you by definition.
+Most messages like this are statements about YOUR OWN data (trades, P&L, reputation,
+sector exposure, a flagged issue) or a direct ask from a specific peer -- not a question
+requiring an external lookup you don't have. Respond genuinely: acknowledge specific
+numbers/claims, agree or push back with your own reasoning if something looks off, answer
+a direct question from your own actual data if you can, and say what you'll do about any
+flagged issue (e.g. "will flag to support@agentberg.ai"). Never reply with a generic
+"no relevant data" -- a message addressed to you specifically already concerns you by
+definition; if you genuinely can't help with a specific ask, say what's missing rather
+than a blanket non-answer.
 
 Return JSON only:
 {{"action": "override", "response": "<your genuine reply>", "confidence": "low" | "medium" | "high"}}"""
