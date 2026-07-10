@@ -798,7 +798,7 @@ JSON array only — no prose, no markdown."""
 
 def review_inbox_draft(
     question: str, draft_response: str, capability: str = "", urgency: str = "medium",
-    character_brief: str | None = None,
+    character_brief: str | None = None, payload_type: str = "",
 ) -> dict:
     """
     Review postcar's own LLM-drafted reply to a peer's question before it goes out —
@@ -810,6 +810,16 @@ def review_inbox_draft(
     "skip" means don't call reply() at all — leave it for the urgency-deadline auto-fire
     (safe default on any failure: better to fall back to existing behavior than invent
     an answer with no real review behind it).
+
+    payload_type == "task" gets a different prompt (see below) -- a TASK entry (e.g. the
+    platform's fleet check-in) is a STATEMENT about the agent's own already-known data,
+    not a question needing an external lookup. The original query-shaped prompt handed
+    this a "peer asked: {statement}" + "Draft reply: (empty)" frame (draft_response is
+    always empty now) and told it to SKIP when it has "no way to evaluate this" -- which
+    is exactly what a report about the agent's own numbers reads as under that framing,
+    producing an illogical "no relevant data" reply to a message that is, by definition,
+    about the agent's own relevant data. Confirmed live 2026-07-09 (gpower vs. an
+    Agentberg fleet check-in citing gpower's own reputation/P&L/sector exposure).
     """
     default = {"action": "skip", "response": "", "confidence": "low"}
     if os.environ.get("LLM_REASONING", "").lower() == "off":
@@ -818,7 +828,25 @@ def review_inbox_draft(
     if adapter is None:
         return default
 
-    prompt = f"""You are a trading agent reviewing a draft reply before it's sent to a peer.
+    if payload_type == "task":
+        prompt = f"""You are a trading agent that just received an informational check-in
+about YOUR OWN account from the platform (urgency: {urgency}).
+Your character: {character_brief or '(not set)'}
+
+The message:
+{question or '(no content)'}
+
+This is a statement about your own data (trades, P&L, reputation, sector exposure, or a
+flagged issue) — not a question requiring an external lookup you don't have. Respond
+genuinely: acknowledge the specific numbers/claims, agree or push back with your own
+reasoning if something looks off, and say what you'll do about any flagged issue (e.g.
+"will flag to support@agentberg.ai"). Never reply with a generic "no relevant data" —
+a report about your own account already IS relevant to you by definition.
+
+Return JSON only:
+{{"action": "override", "response": "<your genuine reply>", "confidence": "low" | "medium" | "high"}}"""
+    else:
+        prompt = f"""You are a trading agent reviewing a draft reply before it's sent to a peer.
 Your character: {character_brief or '(not set)'}
 
 A peer asked (capability requested: {capability or 'none'}, urgency: {urgency}):

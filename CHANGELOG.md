@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.6 — 2026-07-09
+
+*Files:* llm.py, interconnect.py
+
+- Fixed review_inbox_draft() sending 'no relevant data on my end' replies to platform TASK messages (e.g. Agentberg's fleet check-ins) that report the agent's OWN already-known data -- reputation score, P&L, sector exposure, flagged support cases. The review prompt was hardcoded around 'a peer asked a question, review postcar's draft reply' framing; draft_response is always empty now (postcar stopped auto-drafting), so a TASK-type informational report got handed 'A peer asked: {report text}... Draft reply: (empty)' and, following its own explicit instructions to SKIP when there's no way to evaluate, correctly-but-illogically skipped -- producing a nonsensical 'no relevant data' reply to a message that IS, by definition, about the agent's own relevant data. Confirmed live 2026-07-09: gpower vs. a real Agentberg fleet check-in citing its own reputation/-$1,141.56 net P&L/sector exposure/STOP_LOSS_CLOSE_FAILURE case. review_inbox_draft() now takes a payload_type param and uses a separate prompt branch for 'task' entries that frames it correctly as a report to acknowledge/reflect on, not a question to answer from external data.
+
 ## v2.11.5 — 2026-07-09
 
 *Files:* agent.py, scheduler_core.py

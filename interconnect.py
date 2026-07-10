@@ -116,6 +116,7 @@ def process_postcar_inbox() -> None:
                 capability=entry.get("capability", ""),
                 urgency=entry.get("urgency", "medium"),
                 character_brief=brief,
+                payload_type=entry.get("payload_type", ""),
             )
         except Exception as e:
             print(f"    [interconnect] review_inbox_draft failed: {e}")
