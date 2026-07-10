@@ -299,9 +299,36 @@ def check_self_emotion() -> None:
         print(f"    [interconnect] report_trigger failed: {e}")
 
 
+def _restart_pending() -> bool:
+    """postcar's own --check-loop daemon (separate process) already self-exits
+    on this flag and gets relaunched by KeepAlive/run.sh with fresh code (see
+    postcar_check.py's _UPGRADE_FLAG_FILE handling under --check-loop). This
+    process (scheduler.py) is a SEPARATE long-lived process that also imports
+    postcar_check as a module via _postcar() below -- nothing was watching
+    this flag on the scheduler side, so a postcar-only git-pull (independent
+    of kit_manifest.json's own version, which kit_autoupdate.py DOES already
+    restart the scheduler for) left this process running the old in-memory
+    postcar code indefinitely. Confirmed root cause live 2026-07-10: gpower's
+    scheduler kept running pre-fix dedup code for hours after the fix landed
+    on disk, semantic-dedup silently degraded to lexical-only the whole time,
+    flooding peers with near-duplicate triggers every cycle. Mirrors the same
+    flag file postcar_check.py already defines and consumes on its own side."""
+    flag = _POSTCAR_DIR / ".postcar_upgrade_pending"
+    if not flag.exists():
+        return False
+    try:
+        flag.unlink()
+    except Exception:
+        pass
+    print("    [interconnect] postcar upgrade pulled -- exiting for supervisor to relaunch with new code")
+    return True
+
+
 def run_all() -> None:
     """Call every monitor/heartbeat cycle. Each piece degrades independently —
     one failing never blocks the others."""
+    if _restart_pending():
+        sys.exit(0)
     process_postcar_inbox()
     process_postcar_guidance()
     check_self_emotion()

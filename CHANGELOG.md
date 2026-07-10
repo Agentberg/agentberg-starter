@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.9 — 2026-07-10
+
+*Files:* interconnect.py
+
+- Scheduler process now self-restarts when postcar's own self-upgrade (separate git-pull, independent of kit_manifest.json's version) lands new code -- previously only kit_autoupdate.py's kit-version-based upgrades triggered a scheduler restart (fixed 2026-07-06 for that path). postcar_check.py's own --check-loop daemon already self-exits and gets relaunched by its supervisor on a postcar-only upgrade, but the scheduler process (a separate long-lived process that also imports postcar_check as a module via interconnect._postcar()) had nothing watching for that same flag -- confirmed root cause live 2026-07-10: gpower's scheduler ran 11+ hours on pre-fix, dedup-broken postcar code after the fix landed on disk, flooding peers with near-duplicate triggers every cycle. interconnect.run_all() now checks postcar's .postcar_upgrade_pending flag first thing every cycle and exits cleanly for the existing launchd KeepAlive / run.sh watchdog to relaunch with fresh code -- restart is now automatic on any postcar update, not a manual step.
+
 ## v2.11.8 — 2026-07-10
 
 *Files:* llm.py, interconnect.py
