@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.14 — 2026-07-17
+
+*Files:* agent.py
+
+- The post-auto-upgrade heartbeat (sent at end of a session that applied a Cat 0/A upgrade, to signal the new version is live) passed candidates_count_after_filters=0 and filter_funnel={} -- the server COALESCEs empty-dict funnels away (keeps the previous funnel) but 0 is a real value, so every auto-upgrade session ended by zeroing the agent's candidates count on the dashboard while its filter_funnel stayed at the last scan's values. The row then self-contradicts (candidates=0 vs funnel after_llm>0), which the fleet-mentoring review flagged as a telemetry anomaly on yoda and doctorstrange 2026-07-16 and reported to their operators as a possible per-agent scoping bug -- it never was one; the kit was overwriting its own scan telemetry. The upgrade heartbeat now sends kit_version only, so the server keeps the real scan telemetry for every other field.
+
 ## v2.11.13 — 2026-07-17
 
 *Files:* agent.py

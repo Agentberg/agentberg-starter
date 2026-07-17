@@ -1560,12 +1560,12 @@ def run_session():
             _new_ver = None
             with open(os.path.join(os.path.dirname(__file__), "kit_manifest.json")) as _mf:
                 _new_ver = json.load(_mf).get("version")
-            _agentberg.send_heartbeat(
-                kit_version=_new_ver,
-                universe_size=universe_size,
-                candidates_count_after_filters=0,
-                filter_funnel={},
-            )
+            # kit_version only -- the scan heartbeat (Step 3c) already reported this
+            # session's real telemetry, and the server COALESCEs omitted fields onto it.
+            # Passing candidates=0/funnel={} here clobbered the row after every
+            # auto-upgrade (candidates zeroed, funnel kept stale) -- yoda/doctorstrange
+            # got false anomaly flags from exactly that, 2026-07-16 fleet review.
+            _agentberg.send_heartbeat(kit_version=_new_ver)
             print(f"[restart] Heartbeat sent (v{_new_ver}) — restarting scheduler.")
         except Exception as _hbe:
             print(f"[restart] Heartbeat failed ({_hbe}) — restarting anyway.")
