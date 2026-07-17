@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.11 — 2026-07-17
+
+*Files:* run.sh
+
+- run.sh's dependency-install step ('$PYTHON -m pip install -r requirements.txt') was fatal under set -euo pipefail: any pip failure (PEP 668 externally-managed-environment on Homebrew Python, a uv-created venv with no pip module, offline installs, etc.) killed run.sh before scheduler.py ever launched. Because these launchd jobs use KeepAlive=true, the failure just crash-looped run.sh forever with the scheduler never once starting -- the postcar comms sidecar kept sending heartbeats independently the whole time, masking the outage on the Agentberg dashboard (heartbeat alive != scheduler alive). Found 2026-07-17 reviewing two home agents after a multi-day laptop-down window: gpower had been down since ~07-08, SMoney since ~06-30 (17+ days), both invisible until direct log/process inspection. Fixed by making the pip-install failure non-fatal (logs a warning, continues with the existing environment) instead of aborting the script.
+
 ## v2.11.10 — 2026-07-10
 
 *Files:* interconnect.py

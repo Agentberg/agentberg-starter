@@ -21,10 +21,16 @@ PYTHON="${PYTHON:-python3}"
 
 mkdir -p logs
 
-# Install any missing prerequisites before first start
+# Install any missing prerequisites before first start. Non-fatal: a pip
+# failure here (PEP 668 externally-managed-environment on Homebrew Python,
+# a uv-created venv with no pip module, no network, etc.) must never block
+# the scheduler from starting — under set -e it used to kill this whole
+# script on every relaunch, and launchd's KeepAlive just crash-looped it
+# forever with the scheduler never once starting.
 if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
     echo "[startup] Checking prerequisites..."
-    "$PYTHON" -m pip install -r "$SCRIPT_DIR/requirements.txt" --quiet --disable-pip-version-check
+    "$PYTHON" -m pip install -r "$SCRIPT_DIR/requirements.txt" --quiet --disable-pip-version-check \
+        || echo "[startup] pip install failed — continuing with existing environment"
 fi
 
 # PostCar sidecar bootstrap — lives in its own file (Cat A, auto-updates)
