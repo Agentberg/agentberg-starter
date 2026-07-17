@@ -69,6 +69,7 @@ ALLOW_NAKED_LONG_OPTIONS: bool = False
 # ── Options DTE window ─────────────────────────────────────────────────────────
 MIN_DTE: int = 21    # < 21 DTE: gamma risk spikes
 MAX_DTE: int = 45    # > 45 DTE: too much premium at risk for too long
+OPTION_EXIT_DTE: int = 7   # monitor closes single-leg options at <= this many DTE regardless of P&L (0 disables)
 
 # ── Options delta targeting ────────────────────────────────────────────────────
 MIN_DELTA: float = 0.20    # below this: lottery ticket (lowered for more leverage/excitement)
@@ -90,6 +91,15 @@ EARNINGS_BLACKOUT_DAYS: int = 5       # enforced for options/spreads when the ne
 # Blocked sectors are populated from Agentberg at runtime — no need to set here.
 # Add permanent manual blocks if you want to avoid certain sectors regardless.
 MANUAL_BLOCKED_SECTORS: list[str] = []
+
+# Trust dial: adopt the network's loss-consensus blocked sectors as BINDING for
+# this agent (default: advisory only — the network informs, you decide).
+NETWORK_BLOCKED_BINDING: bool = False
+
+# Anti-hedge dial: refuse entries opposite to a position already held in the same
+# ticker (long + short simultaneously nets to ~zero exposure while paying the
+# spread twice). Leave False if you run deliberate pairs/hedge strategies.
+BLOCK_OPPOSITE_POSITIONS: bool = False
 
 # Regimes to sit out entirely. "bear" means no new longs.
 BLOCKED_REGIMES: list[str] = []

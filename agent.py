@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime
 import json as _json
 import os
+import re
 import sys
 import time
 
@@ -113,6 +114,20 @@ def _compute_intraday_signals(ticker: str) -> dict | None:
         }
     except Exception as exc:
         return None
+
+
+def _occ_dte(option_symbol: str) -> int | None:
+    """Days to expiry parsed from an OCC option symbol (ROOT + YYMMDD + C/P +
+    8-digit strike, e.g. AAPL260918C00150000). Returns None if the symbol
+    doesn't parse as OCC (equities, malformed)."""
+    m = re.search(r"(\d{6})[CP]\d{8}$", option_symbol or "")
+    if not m:
+        return None
+    try:
+        exp = datetime.datetime.strptime(m.group(1), "%y%m%d").date()
+    except ValueError:
+        return None
+    return (exp - datetime.date.today()).days
 
 
 def _entry_signal(bars: list) -> tuple[str | None, float]:
@@ -714,6 +729,15 @@ def run_session():
     # operator's OWN blocks bind (that's the human deciding, not the network).
     network_blocked = list(network_blocked_map.keys())              # advisory
     blocked_sectors = list(cfg.MANUAL_BLOCKED_SECTORS)              # binding (operator's rule)
+    # Cat B trust dial: an operator can choose to adopt the network's loss-consensus
+    # blocks as binding for THEIR agent (NETWORK_BLOCKED_BINDING = True in
+    # risk_params.py). The platform default stays advisory — Agentberg informs, it
+    # does not decide; making it binding is each agent's own alpha choice.
+    if getattr(cfg, "NETWORK_BLOCKED_BINDING", False) and network_blocked:
+        _adopted = [s for s in network_blocked if s not in blocked_sectors]
+        blocked_sectors.extend(_adopted)
+        if _adopted:
+            print(f"    NETWORK_BLOCKED_BINDING: adopted as binding: {', '.join(_adopted)}")
 
     # Skills regime is more current than network consensus
     if not regime:
@@ -1238,6 +1262,19 @@ def run_session():
             if not allowed:
                 print(f"    SKIP {ticker}: {reason}")
                 continue
+            # Cat B anti-hedge dial: refuse an entry opposite to a position already
+            # held in the same ticker (long AND short simultaneously nets to ~zero
+            # exposure while paying the spread twice). Off by default — deliberate
+            # pairs/hedge strategies are a legitimate alpha choice; agents opt in
+            # via BLOCK_OPPOSITE_POSITIONS = True in risk_params.py.
+            if getattr(cfg, "BLOCK_OPPOSITE_POSITIONS", False):
+                _want_side = "long" if direction == "bullish" else "short"
+                _held = next((p for p in positions if p.get("symbol") == ticker), None)
+                if _held and _held.get("side") and _held["side"] != _want_side:
+                    print(f"    SKIP {ticker}: already held {_held['side']} — "
+                          f"opposite-direction entry blocked (BLOCK_OPPOSITE_POSITIONS)")
+                    _pull_buffer()
+                    continue
             try:
                 live_price = _alpaca.get_live_price(ticker)
                 if live_price is None:
@@ -1670,6 +1707,25 @@ def check_positions():
             continue
         unrealised_pnl_pct = float(pos.get("unrealized_plpc", 0))
         asset_class = pos.get("asset_class", "")
+
+        # ── Option DTE exit ────────────────────────────────────────────────────
+        # Long premium near expiry burns theta fastest and picks up gamma/
+        # assignment risk. The entry window already refuses < MIN_DTE (21), so a
+        # position this close to expiry has no thesis left worth the decay —
+        # close it regardless of P&L. Single-leg options only: spread legs never
+        # reach here (handled/structure gates above).
+        if asset_class != "us_equity":
+            _exit_dte = getattr(cfg, "OPTION_EXIT_DTE", 7)
+            _dte = _occ_dte(symbol)
+            if _exit_dte and _dte is not None and _dte <= _exit_dte:
+                print(f"[monitor] DTE EXIT {symbol}: {_dte} DTE <= {_exit_dte} — "
+                      f"closing at {unrealised_pnl_pct:+.1%}")
+                try:
+                    close_order = _close_with_retry(symbol, lambda: _alpaca.close_position(symbol))
+                    _record_close(symbol, "dte_exit", unrealised_pnl_pct, close_order=close_order)
+                except Exception as e:
+                    print(f"[monitor] DTE exit close failed {symbol}: {e}")
+                continue
 
         # ── Trailing stop (all instruments) ────────────────────────────────────
         # Tracks the highest price seen since entry. Once the position is up

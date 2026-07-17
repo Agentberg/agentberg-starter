@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.13 — 2026-07-17
+
+*Files:* agent.py
+
+- Follow-up to v2.11.12's fleet-review fixes -- one new systemic risk behavior plus two opt-in alpha dials (engine support ships Cat A; the dials themselves live in operator-owned risk_params.py and default to current behavior). (1) Option DTE exit (active fleet-wide): the 5-minute monitor now closes any single-leg option at <= OPTION_EXIT_DTE days to expiry (default 7, getattr; set 0 in risk_params.py to disable) regardless of P&L -- previously a losing long option could ride all the way to expiry held only by the -50% premium stop, burning peak theta and picking up gamma/assignment risk the entry window (MIN_DTE 21) was specifically designed to avoid. Expiry is parsed from the OCC symbol (new _occ_dte() helper); spread legs are unaffected (they never reach the single-position loop). (2) NETWORK_BLOCKED_BINDING (opt-in, default False): an operator can now choose to adopt the network's loss-consensus blocked sectors as BINDING for their agent instead of advisory-only. The platform default stays advisory -- Agentberg informs, it does not decide; making it binding is each agent's own trust/alpha choice, which is why this ships as a dial rather than a behavior change. (3) BLOCK_OPPOSITE_POSITIONS (opt-in, default False): refuses an equity entry opposite to a position already held in the same ticker -- fleet logs show agents holding the same mega-cap long AND short simultaneously (~zero net exposure, spread paid twice). Off by default because deliberate pairs/hedge strategies are legitimate; churn-prone agents opt in via risk_params.py.
+
 ## v2.11.12 — 2026-07-17
 
 *Files:* agent.py, llm.py, risk.py
