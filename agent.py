@@ -115,6 +115,30 @@ def _compute_intraday_signals(ticker: str) -> dict | None:
         return None
 
 
+def _entry_signal(bars: list) -> tuple[str | None, float]:
+    """Deterministic entry signal from daily bars.
+
+    Direction requires BOTH a same-day move past the 0.3% band AND agreement
+    with the 20-day trend (close vs SMA-20). A one-day move against the
+    prevailing trend is noise, not signal — the old day_change-only rule
+    qualified nearly every liquid name every day and produced symmetric
+    win/loss churn at fleet level. Returns (direction, day_change);
+    direction is None when nothing qualifies.
+    """
+    if len(bars) < 2:
+        return None, 0.0
+    closes = [float(b["c"]) for b in bars]
+    latest_close, prev_close = closes[-1], closes[-2]
+    day_change = (latest_close - prev_close) / prev_close
+    sma_window = closes[-20:]
+    sma20 = sum(sma_window) / len(sma_window)
+    if day_change > 0.003 and latest_close > sma20:
+        return "bullish", day_change
+    if day_change < -0.003 and latest_close < sma20:
+        return "bearish", day_change
+    return None, day_change
+
+
 def _compute_beta(stock_bars: list, spy_bars: list) -> float:
     """Compute realized beta vs SPY from daily close bars. Returns 0.0 on insufficient data."""
     stock_closes = {b["t"][:10]: float(b["c"]) for b in stock_bars}
@@ -784,21 +808,13 @@ def run_session():
                 continue
 
             latest_close = float(bars[-1]["c"])
-            prev_close   = float(bars[-2]["c"])
-            day_change   = (latest_close - prev_close) / prev_close
 
             # ── YOUR SIGNAL LOGIC GOES HERE ────────────────────────────────────
-            # Replace the placeholder below with your own entry signal.
+            # Replace _entry_signal() with your own entry signal if you have one.
             # Examples: RSI, SMA crossover, volume spike, breakout pattern.
             # Return a direction: "bullish", "bearish", or None to skip.
 
-            direction = None   # replace with your signal
-
-            # Momentum signal — 0.3% threshold (loosened from 1% to catch range-bound moves)
-            if day_change > 0.003:
-                direction = "bullish"
-            elif day_change < -0.003:
-                direction = "bearish"
+            direction, day_change = _entry_signal(bars)
 
             # ── END SIGNAL LOGIC ───────────────────────────────────────────────
 
@@ -830,9 +846,7 @@ def run_session():
         if len(fk_bars) < 2:
             continue
         fk_close = float(fk_bars[-1]["c"])
-        fk_prev  = float(fk_bars[-2]["c"])
-        fk_chg   = (fk_close - fk_prev) / fk_prev
-        fk_dir   = "bullish" if fk_chg > 0.003 else ("bearish" if fk_chg < -0.003 else None)
+        fk_dir, fk_chg = _entry_signal(fk_bars)
         if not fk_dir:
             continue
         candidates.append({
@@ -869,9 +883,7 @@ def run_session():
             if len(bars) < 2:
                 return
             latest_close = float(bars[-1]["c"])
-            prev_close   = float(bars[-2]["c"])
-            day_change   = (latest_close - prev_close) / prev_close
-            direction    = "bullish" if day_change > 0.003 else ("bearish" if day_change < -0.003 else None)
+            direction, day_change = _entry_signal(bars)
             if not direction:
                 return
             candidates.append({
@@ -966,6 +978,12 @@ def run_session():
                     # StockTwits community sentiment (pre-computed server-side)
                     "stocktwits_sentiment": brief.get("stocktwits_sentiment"),
                     "stocktwits_bull_pct":  brief.get("stocktwits_bull_pct"),
+                    # Crowd density — distinct agents already in this ticker today
+                    "concurrent_agents_today": brief.get("concurrent_agents_today"),
+                    # Earnings proximity (server-side calendar; None until the
+                    # server ships the field) — activates the options/spreads
+                    # EARNINGS_BLACKOUT_DAYS check in risk.py when present
+                    "days_to_earnings": brief.get("days_to_earnings"),
                 }
                 enriched += 1
         print(f"    Enriched {enriched}/{len(candidates)} candidates with network ticker intel")
@@ -1298,6 +1316,7 @@ def run_session():
             allowed, reason = risk.check_option(
                 ticker, sector, regime, blocked_sectors, equity, open_count,
                 premium=limit_price, dte=dte, delta=delta, iv_rank=iv_rank,
+                days_to_earnings=(c.get("network_intel") or {}).get("days_to_earnings"),
             )
             if not allowed:
                 print(f"    SKIP {ticker} {option_type}: {reason}")
@@ -1349,6 +1368,7 @@ def run_session():
             allowed, reason = risk.check_spread(
                 ticker, sector, regime, blocked_sectors, equity, open_count,
                 net_debit=net_debit, spread_width=spread_width, dte=dte,
+                days_to_earnings=(c.get("network_intel") or {}).get("days_to_earnings"),
             )
             if not allowed:
                 print(f"    SKIP {ticker} spread: {reason}")

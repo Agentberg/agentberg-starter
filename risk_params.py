@@ -49,13 +49,22 @@ TAKE_PROFIT_PCT:        float = 1.00   # options: exit at 100% gain on premium (
 # ── Trailing stop (all instruments) ────────────────────────────────────────────
 # Once a position gains TRIGGER_PCT, the stop trails DISTANCE_PCT below the
 # highest price seen since entry. Locks in gains on reversals without capping upside.
-# Equities use tighter distances (slow movers, no decay).
+# Equities: the old 1%/1% default fired on routine intraday chop and cut winners
+# at ~+2% while stops ran to -4% — fleet trade logs showed symmetric $win/$loss
+# despite the 6/4 target/stop. 4% trigger / 2% trail lets a winner actually run.
 # Options use wider distances (volatile premium, theta decay would fire too early).
 TRAILING_STOP_ENABLED:              bool  = True
-TRAILING_STOP_TRIGGER_PCT:          float = 0.01   # equities: activate at 1% gain
-TRAILING_STOP_DISTANCE_PCT:         float = 0.01   # equities: trail 1% below HWM
+TRAILING_STOP_TRIGGER_PCT:          float = 0.04   # equities: activate at 4% gain
+TRAILING_STOP_DISTANCE_PCT:         float = 0.02   # equities: trail 2% below HWM
 OPTION_TRAILING_STOP_TRIGGER_PCT:   float = 0.20   # options: activate at 20% premium gain
 OPTION_TRAILING_STOP_DISTANCE_PCT:  float = 0.20   # options: trail 20% below HWM premium
+
+# ── Naked long options gate ────────────────────────────────────────────────────
+# Single-leg long calls/puts (STRATEGY_MODE "premium_buyer") are gated OFF
+# fleet-wide by default: they are the fleet's dominant loss source (theta decay +
+# directional coin-flips compound). Spreads are unaffected (defined max loss).
+# Set True only if you genuinely want naked long premium exposure.
+ALLOW_NAKED_LONG_OPTIONS: bool = False
 
 # ── Options DTE window ─────────────────────────────────────────────────────────
 MIN_DTE: int = 21    # < 21 DTE: gamma risk spikes
@@ -75,7 +84,7 @@ MAX_IV_RANK_TO_BUY: float = 30.0   # don't buy when IV is expensive
 
 # ── Spreads ────────────────────────────────────────────────────────────────────
 MAX_SPREAD_DEBIT_PCT:  float = 0.33   # max debit as % of spread width
-EARNINGS_BLACKOUT_DAYS: int = 5       # NOT ENFORCED — placeholder; risk.py does not yet check earnings calendar
+EARNINGS_BLACKOUT_DAYS: int = 5       # enforced for options/spreads when the network ticker brief supplies days_to_earnings (until then: dormant)
 
 # ── Network rules ──────────────────────────────────────────────────────────────
 # Blocked sectors are populated from Agentberg at runtime — no need to set here.

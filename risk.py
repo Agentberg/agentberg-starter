@@ -40,7 +40,19 @@ def check_option(
     dte: int,
     delta: float,
     iv_rank: float | None = None,
+    days_to_earnings: int | None = None,
 ) -> tuple[bool, str]:
+    # Fleet-wide gate on naked long premium (2026-07-17): single-leg long options
+    # are the fleet's dominant loss source (negative expectancy at fleet level).
+    # Gated by default; operators who genuinely want the exposure opt in by adding
+    # ALLOW_NAKED_LONG_OPTIONS = True to risk_params.py. getattr keeps existing
+    # installs (whose risk_params.py predates the flag) gated.
+    if not getattr(cfg, "ALLOW_NAKED_LONG_OPTIONS", False):
+        return False, ("Naked long options gated fleet-wide — set "
+                       "ALLOW_NAKED_LONG_OPTIONS = True in risk_params.py to opt in")
+    _blackout = getattr(cfg, "EARNINGS_BLACKOUT_DAYS", 0) or 0
+    if days_to_earnings is not None and 0 <= days_to_earnings <= _blackout:
+        return False, f"Earnings in {days_to_earnings}d — inside {_blackout}d blackout"
     if sector in blocked_sectors:
         return False, f"{sector} blocked by your MANUAL_BLOCKED_SECTORS rule"
     if regime and regime in cfg.BLOCKED_REGIMES:
@@ -71,7 +83,11 @@ def check_spread(
     net_debit: float,
     spread_width: float,
     dte: int,
+    days_to_earnings: int | None = None,
 ) -> tuple[bool, str]:
+    _blackout = getattr(cfg, "EARNINGS_BLACKOUT_DAYS", 0) or 0
+    if days_to_earnings is not None and 0 <= days_to_earnings <= _blackout:
+        return False, f"Earnings in {days_to_earnings}d — inside {_blackout}d blackout"
     if sector in blocked_sectors:
         return False, f"{sector} blocked by your MANUAL_BLOCKED_SECTORS rule"
     if regime and regime in cfg.BLOCKED_REGIMES:

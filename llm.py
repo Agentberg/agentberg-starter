@@ -585,18 +585,25 @@ def _build_trade_decision_prompt(candidate: dict, allocated_usd: float, regime: 
     intraday_note = ""
     sig = candidate.get("intraday") or {}
     if sig:
+        # Producer keys/units (see agent.py::_compute_intraday_signals):
+        # intraday_rsi is 0-100; price_vs_vwap and pct_from_20d_high are already
+        # percent numbers (1.25 == +1.25%), and pct_from_20d_high may be None.
+        _vwap_pct  = sig.get("price_vs_vwap") or 0.0
+        _from_high = sig.get("pct_from_20d_high")
         intraday_note = (
-            f"\nIntraday: RSI(15m)={sig.get('rsi_15', 0):.1f} | "
-            f"vs VWAP={sig.get('price_vs_vwap', 0):+.2%} | "
-            f"from 20d high={sig.get('pct_from_20d_high', 0):+.1%}"
+            f"\nIntraday: RSI(15m)={sig.get('intraday_rsi') or 0.0:.1f} | "
+            f"vs VWAP={_vwap_pct:+.2f}% | "
+            f"from 20d high={'n/a' if _from_high is None else format(_from_high, '+.1f') + '%'}"
         )
     net_note = ""
     ni = candidate.get("network_intel") or {}
     if ni:
+        # network_wr is a 0-1 fraction and may be None (no resolved trades yet)
+        _wr = ni.get("network_wr")
         net_note = (
             f"\nNetwork: verdict={ni.get('verdict', '?')} | "
-            f"WR {ni.get('collective_win_rate', 0):.0%} | "
-            f"concurrent agents today={ni.get('concurrent_agents_today', '?')}"
+            f"WR {'n/a' if _wr is None else format(_wr, '.0%')} | "
+            f"concurrent agents today={ni.get('concurrent_agents_today') if ni.get('concurrent_agents_today') is not None else '?'}"
         )
     stance_note = ""
     if l1_stance:
