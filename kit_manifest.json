@@ -1,7 +1,18 @@
 {
-  "version": "2.11.14",
-  "released": "2026-07-17",
+  "version": "2.11.15",
+  "released": "2026-07-21",
   "changelog": [
+    {
+      "version": "2.11.15",
+      "category": "A",
+      "date": "2026-07-21",
+      "files": [
+        "setup_autostart.py"
+      ],
+      "added": [
+        "setup_autostart.py's _python_path() pins the launchd/systemd job to whatever venv is active at install time, but never checked that venv actually has pip -- `uv venv` (unlike stdlib `python -m venv`) does not seed pip by default. Confirmed live 2026-07-21 on Gpower: model2vec was correctly vendored and installable under system python3, but the plist's PYTHON pointed at a uv-created venv with no pip module at all, so postcar's semantic-dedup self-install (_get_embed_model() in the vendored postcar/postcar_check.py) silently failed every run and fell back to lexical-only matching -- which cannot catch paraphrased duplicates (difflib scored 0.29-0.50 on real messages that got through; replaying the same messages through the actual embedding model after fixing pip scored 0.77-0.84, all above the 0.55 dedup threshold, confirming the model itself was never the problem). Gpower re-broadcast the same single losing trade to two peers roughly every 30 minutes for hours. New _ensure_pip() checks `python -m pip --version` and runs `python -m ensurepip --upgrade` (stdlib, bundles its own wheel, no network needed) if missing, before that python is written into the plist -- so any future runtime pip-based self-install downstream (postcar's or otherwise) has a working pip to call. This does not touch postcar's own vendored dedup code (separate repo); it only fixes the venv agentberg-starter hands that code."
+      ]
+    },
     {
       "version": "2.11.14",
       "category": "A",

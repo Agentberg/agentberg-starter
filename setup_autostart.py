@@ -51,9 +51,41 @@ def _safe_label(agent_id: str) -> str:
 
 def _python_path() -> str:
     venv = Path(sys.executable).parent.parent
-    if (venv / "bin" / "python3").exists():
-        return str(venv / "bin" / "python3")
+    venv_python = venv / "bin" / "python3"
+    if venv_python.exists():
+        _ensure_pip(str(venv_python))
+        return str(venv_python)
     return sys.executable
+
+
+def _ensure_pip(python: str) -> None:
+    """Seed pip into `python`'s environment if missing. `uv venv` (unlike
+    stdlib `python -m venv`) does not install pip by default, so a kit set up
+    inside a uv-created venv permanently pins the launchd/systemd job -- and
+    every runtime `pip install` self-install downstream (e.g. postcar's
+    optional model2vec dependency) -- to an interpreter that can never
+    install anything. Confirmed live 2026-07-21: model2vec was actually
+    installed under the system python3, but the plist's PYTHON pointed at a
+    uv venv with no pip module at all, so postcar's semantic-dedup self-
+    install silently failed every run and fell back to lexical-only matching,
+    which cannot catch paraphrased duplicates (cosine sim 0.77-0.84 on the
+    real messages that got through, all above the 0.55 dedup threshold).
+    ensurepip is stdlib and bundles its own wheel, so this needs no network."""
+    try:
+        subprocess.run(
+            [python, "-m", "pip", "--version"],
+            capture_output=True, timeout=15,
+        ).check_returncode()
+        return
+    except Exception:
+        pass
+    try:
+        subprocess.run(
+            [python, "-m", "ensurepip", "--upgrade"],
+            capture_output=True, timeout=60,
+        )
+    except Exception:
+        pass
 
 
 def _exec_parts(folder: Path, python: str) -> list[str]:
