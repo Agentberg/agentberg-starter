@@ -525,6 +525,16 @@ def run_session():
     migrations.run()
     _phone_home()
     mode = cfg.STRATEGY_MODE
+    # Volatility-adaptive structure selection (2026-07-21, opt-in via
+    # VOL_ADAPTIVE_STRUCTURE_ENABLED) — rotates premium_buyer to spreads for
+    # this session when the VIXY-proxy vol percentile is elevated, mirroring
+    # Cboe's Volatility-Managed PutWrite Index's own regime-switch. Computed
+    # once per session here, before the mode is used anywhere below.
+    if getattr(cfg, "VOL_ADAPTIVE_STRUCTURE_ENABLED", False):
+        _vol_pctl = _alpaca.get_vix_proxy_percentile()
+        mode, _vol_reason = risk.pick_vol_adaptive_strategy_mode(mode, _vol_pctl)
+        if _vol_reason:
+            print(f"    [vol-regime] {_vol_reason}")
     print(f"\n[agent] {datetime.datetime.now():%Y-%m-%d %H:%M} | ID: {cfg.AGENT_ID} | Mode: {mode}")
     if not character.is_set():
         print("    [setup] No character yet — ask the human the onboarding questions "
@@ -813,6 +823,44 @@ def run_session():
     open_count    = len(positions)
 
     print(f"[2] Portfolio: ${equity:,.2f} equity | ${buying_power:,.2f} BP | {open_count} open positions")
+
+    # Portfolio Greeks (2026-07-21, opt-in via MAX_PORTFOLIO_DELTA_PCT/
+    # MAX_PORTFOLIO_VEGA_PCT) — marks the currently-open options book to
+    # market for risk.check_portfolio_greeks() below. One batched call for
+    # every open option symbol, not per-position, to keep this a single
+    # extra request per session regardless of book size.
+    portfolio_delta_dollars = 0.0
+    portfolio_vega_dollars = 0.0
+    if getattr(cfg, "MAX_PORTFOLIO_DELTA_PCT", None) is not None or \
+       getattr(cfg, "MAX_PORTFOLIO_VEGA_PCT", None) is not None:
+        _opt_positions = [p for p in positions if p.get("asset_class") == "us_option"]
+        _greeks_by_symbol = _alpaca.get_option_greeks_batch([p["symbol"] for p in _opt_positions])
+        _missing_greeks = 0
+        for p in _opt_positions:
+            g = _greeks_by_symbol.get(p["symbol"], {})
+            if not g:
+                _missing_greeks += 1
+                continue  # unknown, not zero -- see warning below, do NOT count as no exposure
+            _qty = float(p.get("qty", 0))
+            portfolio_delta_dollars += abs(float(g.get("delta", 0))) * abs(_qty) * 100
+            portfolio_vega_dollars += abs(float(g.get("vega", 0))) * abs(_qty) * 100
+        if _missing_greeks:
+            # Confirmed live 2026-07-21: this account's data entitlement (free/
+            # indicative feed) returns no greeks field at all from either
+            # /v2/options/contracts or the options snapshot endpoint -- the
+            # SAME gap find_option_contracts() above silently has too (its
+            # delta filter defaults absent greeks to 0.0, which just filters
+            # those contracts out rather than warning). A budget check that
+            # can't see part of the book is worse than no budget check --
+            # it looks like a real number and isn't one. Loud, not silent.
+            print(f"    [greeks] WARNING: {_missing_greeks}/{len(_opt_positions)} open option "
+                  f"position(s) returned no greeks (data entitlement gap, not zero exposure) — "
+                  f"portfolio delta/vega below is UNDERSTATED, do not trust it as a clean bill of health")
+        if _opt_positions:
+            print(f"    [greeks] portfolio delta ${portfolio_delta_dollars:,.0f} "
+                  f"({portfolio_delta_dollars/equity:.1%} of equity) | "
+                  f"vega ${portfolio_vega_dollars:,.0f} ({portfolio_vega_dollars/equity:.1%} of equity)"
+                  + (" [PARTIAL — see warning above]" if _missing_greeks else ""))
 
     # ── Step 3: Scan watchlist ─────────────────────────────────────────────────
     print(f"[3] Scanning {sum(len(v) for v in cfg.WATCHLIST.values())} tickers ({mode} mode)...")
@@ -1358,6 +1406,13 @@ def run_session():
             if not allowed:
                 print(f"    SKIP {ticker} {option_type}: {reason}")
                 continue
+            vega = float(greeks.get("vega", 0))
+            allowed, reason = risk.check_portfolio_greeks(
+                delta, vega, 1, portfolio_delta_dollars, portfolio_vega_dollars, equity,
+            )
+            if not allowed:
+                print(f"    SKIP {ticker} {option_type}: {reason}")
+                continue
             try:
                 order    = _alpaca.submit_option_single(contract["symbol"], qty=1, side="buy", limit_price=limit_price)
                 # Use Alpaca's actual fill price; fall back to the limit price only if not yet filled
@@ -1383,6 +1438,13 @@ def run_session():
                 traded_this_session.add(ticker)
                 open_count   += 1
                 _slots_opened += 1
+                # Keep the running portfolio-Greeks total current within THIS
+                # session too — otherwise check_portfolio_greeks() only sees
+                # pre-session exposure and misses several similar bets
+                # stacking up across one entry cycle, the exact scenario the
+                # budget exists to catch.
+                portfolio_delta_dollars += abs(delta) * 100
+                portfolio_vega_dollars += abs(vega) * 100
             except Exception as e:
                 print(f"    ORDER FAILED {ticker}: {e}")
 
@@ -1406,6 +1468,21 @@ def run_session():
                 ticker, sector, regime, blocked_sectors, equity, open_count,
                 net_debit=net_debit, spread_width=spread_width, dte=dte,
                 days_to_earnings=(c.get("network_intel") or {}).get("days_to_earnings"),
+            )
+            if not allowed:
+                print(f"    SKIP {ticker} spread: {reason}")
+                continue
+
+            # Net Greeks of the two-leg structure (long minus short) — a
+            # vertical spread's whole point is that this nets to something
+            # much smaller than either leg's own delta/vega, but it's not
+            # zero, and it still needs to count against the portfolio budget.
+            net_delta = float((buy_leg.get("greeks") or {}).get("delta", 0)) - \
+                        float((sell_leg.get("greeks") or {}).get("delta", 0))
+            net_vega = float((buy_leg.get("greeks") or {}).get("vega", 0)) - \
+                       float((sell_leg.get("greeks") or {}).get("vega", 0))
+            allowed, reason = risk.check_portfolio_greeks(
+                net_delta, net_vega, 1, portfolio_delta_dollars, portfolio_vega_dollars, equity,
             )
             if not allowed:
                 print(f"    SKIP {ticker} spread: {reason}")
@@ -1446,6 +1523,8 @@ def run_session():
                 traded_this_session.add(ticker)
                 open_count   += 1
                 _slots_opened += 1
+                portfolio_delta_dollars += abs(net_delta) * 100
+                portfolio_vega_dollars += abs(net_vega) * 100
             except Exception as e:
                 print(f"    ORDER FAILED {ticker} spread: {e}")
 

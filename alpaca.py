@@ -12,7 +12,36 @@ Options require Level 2 approval on Alpaca:
 from __future__ import annotations
 
 import datetime
+import re
+
 import httpx
+
+import config as cfg
+import greeks as _greeks
+
+# OCC option symbol: ROOT + YYMMDD + C/P + 8-digit strike*1000, e.g. AAPL260918C00150000.
+_OCC_RE = re.compile(r"^([A-Z]+)(\d{6})([CP])(\d{8})$")
+
+
+def _parse_occ_symbol(symbol: str) -> dict | None:
+    """Underlying/expiration/type/strike parsed straight from an OCC contract
+    symbol -- needed by get_option_greeks_batch() below, which only ever gets
+    bare symbols back from get_positions() (no structured contract lookup
+    happens for an already-open position anywhere else in this file)."""
+    m = _OCC_RE.match(symbol or "")
+    if not m:
+        return None
+    underlying, exp_str, cp, strike_str = m.groups()
+    try:
+        expiration = datetime.datetime.strptime(exp_str, "%y%m%d").date()
+    except ValueError:
+        return None
+    return {
+        "underlying": underlying,
+        "expiration_date": expiration,
+        "option_type": "call" if cp == "C" else "put",
+        "strike": int(strike_str) / 1000.0,
+    }
 
 # Pre-flight checks against Alpaca's own documented order rules
 # (docs.alpaca.markets/docs/orders-at-alpaca), verified 2026-07-06 --
@@ -209,7 +238,20 @@ class AlpacaClient:
         min_delta: float = 0.30,
         max_delta: float = 0.50,
     ) -> list[dict]:
-        """Find contracts matching DTE and delta targets, sorted by delta closest to range midpoint."""
+        """Find contracts matching DTE and delta targets, sorted by delta closest
+        to range midpoint. Returned contract dicts carry "bid_price"/
+        "ask_price"/"greeks" (delta/gamma/theta/vega/rho/implied_volatility) --
+        callers elsewhere in this kit (agent.py's premium_buyer/spreads paths)
+        already read exactly those keys.
+
+        /v2/options/contracts itself returns none of bid/ask/greeks on this
+        account's data tier (confirmed live 2026-07-21 -- open_interest,
+        close_price, greeks all null/absent, reference data only). Enriched
+        here from a live quote (options snapshot endpoint, which DOES return
+        real bid/ask on this tier) plus locally-computed Greeks (greeks.py) --
+        see get_option_greeks_batch()'s docstring for the full reasoning.
+        Contracts with no live quote or unsolvable IV are dropped, not kept
+        with a fabricated zero delta."""
         today = datetime.date.today()
         data = self._get("/v2/options/contracts", params={
             "underlying_symbols": ticker,
@@ -219,12 +261,39 @@ class AlpacaClient:
             "limit": 100,
         })
         contracts = data if isinstance(data, list) else data.get("option_contracts", [])
-        filtered = [
-            c for c in contracts
-            if min_delta <= abs(float((c.get("greeks") or {}).get("delta", 0))) <= max_delta
-        ]
-        mid = (min_delta + max_delta) / 2
-        filtered.sort(key=lambda c: abs(abs(float((c.get("greeks") or {}).get("delta", 0))) - mid))
+        if not contracts:
+            return []
+
+        quotes = self.get_option_quotes_batch([c["symbol"] for c in contracts if c.get("symbol")])
+        underlying_price = self.get_live_price(ticker) or 0
+
+        enriched = []
+        for c in contracts:
+            q = quotes.get(c.get("symbol"))
+            if not q or underlying_price <= 0:
+                continue
+            try:
+                dte = (datetime.date.fromisoformat(c["expiration_date"]) - today).days
+                strike = float(c["strike_price"])
+            except (KeyError, ValueError):
+                continue
+            T = dte / 365.0
+            if T <= 0:
+                continue
+            iv = _greeks.implied_volatility(q["mid"], underlying_price, strike, T, cfg.RISK_FREE_RATE, option_type)
+            if iv is None:
+                continue
+            g = _greeks.greeks(underlying_price, strike, T, cfg.RISK_FREE_RATE, iv, option_type)
+            g["implied_volatility"] = iv
+            c = dict(c)
+            c["bid_price"] = q["bid"]
+            c["ask_price"] = q["ask"]
+            c["greeks"] = g
+            enriched.append(c)
+
+        filtered = [c for c in enriched if min_delta <= abs(c["greeks"]["delta"]) <= max_delta]
+        mid_target = (min_delta + max_delta) / 2
+        filtered.sort(key=lambda c: abs(abs(c["greeks"]["delta"]) - mid_target))
         return filtered
 
     def get_iv_rank(self, ticker: str) -> float | None:
@@ -239,6 +308,101 @@ class AlpacaClient:
         except Exception:
             pass
         return None
+
+    def get_option_quotes_batch(self, symbols: list[str]) -> dict[str, dict]:
+        """Live bid/ask/mid for a list of OCC option symbols in one call, via
+        the options SNAPSHOT endpoint (not /v2/options/contracts, which
+        returns no pricing at all on this account's data tier -- confirmed
+        live 2026-07-21: every field beyond static reference data
+        (open_interest, close_price, greeks) came back null/absent). The
+        snapshot endpoint's latestQuote IS real live data on this same
+        account. Missing symbol = no live quote right now, not zero value."""
+        if not symbols:
+            return {}
+        try:
+            data = self._data_get("/v1beta1/options/snapshots", params={
+                "symbols": ",".join(symbols), "feed": "indicative",
+            })
+        except Exception:
+            return {}
+        out = {}
+        for sym, snap in (data.get("snapshots") or {}).items():
+            q = (snap or {}).get("latestQuote") or {}
+            bid, ask = float(q.get("bp") or 0), float(q.get("ap") or 0)
+            if bid > 0 and ask > 0:
+                out[sym] = {"bid": bid, "ask": ask, "mid": round((bid + ask) / 2, 4)}
+            elif ask > 0:
+                out[sym] = {"bid": bid, "ask": ask, "mid": ask}
+        return out
+
+    def get_option_greeks_batch(self, symbols: list[str]) -> dict[str, dict]:
+        """Current delta/gamma/theta/vega/rho/implied_volatility for a list of
+        OCC option contract symbols in one call, keyed by symbol. Empty dict
+        for any symbol with no live quote or unsolvable IV -- callers must
+        treat a missing key as "unknown," not zero exposure.
+
+        Computed locally (greeks.py) from a live bid/ask, not fetched --
+        neither this account's Alpaca tier nor its EODHD tier return real
+        options Greeks (EODHD's UnicornBay options add-on: confirmed 403
+        Forbidden live 2026-07-21, not subscribed). See greeks.py's own
+        docstring for the full reasoning and the American-vs-European-style
+        pricing caveat.
+
+        Used to mark an already-open book to market for the portfolio Greeks
+        budget (risk.check_portfolio_greeks) -- find_option_contracts() below
+        only ever looks up NEW candidates by underlying; nothing else
+        re-queries an already-open position's current greeks by its own
+        contract symbol."""
+        if not symbols:
+            return {}
+        parsed = {s: _parse_occ_symbol(s) for s in symbols}
+        parsed = {s: p for s, p in parsed.items() if p}
+        if not parsed:
+            return {}
+        quotes = self.get_option_quotes_batch(list(parsed.keys()))
+        today = datetime.date.today()
+        underlying_price_cache: dict[str, float] = {}
+        out = {}
+        for sym, p in parsed.items():
+            q = quotes.get(sym)
+            if not q:
+                continue
+            u = p["underlying"]
+            if u not in underlying_price_cache:
+                underlying_price_cache[u] = self.get_live_price(u) or 0
+            S = underlying_price_cache[u]
+            T = (p["expiration_date"] - today).days / 365.0
+            if S <= 0 or T <= 0:
+                continue
+            iv = _greeks.implied_volatility(q["mid"], S, p["strike"], T, cfg.RISK_FREE_RATE, p["option_type"])
+            if iv is None:
+                continue
+            g = _greeks.greeks(S, p["strike"], T, cfg.RISK_FREE_RATE, iv, p["option_type"])
+            g["implied_volatility"] = iv
+            out[sym] = g
+        return out
+
+    def get_vix_proxy_percentile(self, lookback_days: int = 252) -> float | None:
+        """Where VIXY's current close sits (0-100) within its own trailing
+        `lookback_days` daily range -- a live-tradable, licensing-free proxy
+        for "what percentile is market vol at right now," used to drive
+        regime-adaptive structure selection (risk.py's
+        pick_vol_adaptive_strategy_mode()). Not the CBOE VIX index itself
+        (Alpaca doesn't quote it) -- VIXY tracks near-term VIX futures, which
+        is the standard retail-accessible substitute Cboe's own published
+        research on VIX-linked products treats as directionally equivalent
+        for regime classification, not for exact VIX-level replication.
+        Returns None if there's not enough bar history yet (fresh accounts)."""
+        try:
+            bars = self.get_bars("VIXY", timeframe="1Day", limit=lookback_days)
+        except Exception:
+            return None
+        closes = [float(b["c"]) for b in bars if b.get("c") is not None]
+        if len(closes) < 20:
+            return None
+        current = closes[-1]
+        below = sum(1 for c in closes if c <= current)
+        return round(below / len(closes) * 100, 1)
 
     def submit_option_single(
         self, symbol: str, qty: int, side: str, limit_price: float,

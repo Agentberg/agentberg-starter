@@ -83,9 +83,41 @@ HIGH_BETA_THRESHOLD: float = 1.8
 # ── IV Rank ────────────────────────────────────────────────────────────────────
 MAX_IV_RANK_TO_BUY: float = 30.0   # don't buy when IV is expensive
 
+# ── Risk-free rate (2026-07-21) ─────────────────────────────────────────────────
+# Input to greeks.py's local Black-Scholes/IV solver -- neither this account's
+# Alpaca tier nor its EODHD tier return real options Greeks (confirmed 403 on
+# EODHD's UnicornBay options add-on, not currently subscribed), so Greeks are
+# computed locally from live bid/ask instead. Greeks aren't very sensitive to
+# small errors here -- update occasionally (e.g. roughly track the 3-month
+# T-bill yield), not something that needs day-to-day tuning.
+RISK_FREE_RATE: float = 0.045
+
 # ── Spreads ────────────────────────────────────────────────────────────────────
 MAX_SPREAD_DEBIT_PCT:  float = 0.33   # max debit as % of spread width
 EARNINGS_BLACKOUT_DAYS: int = 5       # enforced for options/spreads when the network ticker brief supplies days_to_earnings (until then: dormant)
+
+# ── Portfolio-level Greeks budget (2026-07-21) ─────────────────────────────────
+# Every check above is single-position -- five individually-compliant same-
+# direction bets can still stack into an aggregate delta that moves like 5x
+# leveraged exposure on one directional call. This caps the WHOLE options book,
+# not just each new trade. Table stakes in every systematic options methodology
+# (Cboe's published index rules included); was missing entirely before this.
+# None = disabled (default) -- set both to opt in. Expressed as % of equity,
+# consistent with MAX_OPTION_PCT/MAX_SPREAD_PCT above.
+MAX_PORTFOLIO_DELTA_PCT: float | None = None   # e.g. 0.15 = net delta-dollar exposure capped at 15% of equity
+MAX_PORTFOLIO_VEGA_PCT:  float | None = None   # e.g. 0.05 = net vega-dollar exposure capped at 5% of equity
+
+# ── Volatility-adaptive structure selection (2026-07-21) ───────────────────────
+# Cboe's own Volatility-Managed PutWrite Index rotates from cash-secured-puts
+# (low vol) toward an iron-condor-shaped defined-risk structure as VIX
+# percentile rises -- this is the kit's equivalent: STRATEGY_MODE
+# "premium_buyer" rotates to "spreads" for the session once the VIXY-proxy vol
+# percentile (risk.py's pick_vol_adaptive_strategy_mode()) crosses the
+# threshold below. Only ever tightens risk, never loosens it automatically --
+# "equity" and "spreads" modes are untouched regardless of vol regime.
+# Disabled by default; existing installs unaffected until turned on.
+VOL_ADAPTIVE_STRUCTURE_ENABLED: bool = False
+VOL_REGIME_HIGH_PCTL: float = 70.0   # VIXY-proxy percentile at/above which premium_buyer rotates to spreads
 
 # ── Network rules ──────────────────────────────────────────────────────────────
 # Blocked sectors are populated from Agentberg at runtime — no need to set here.
