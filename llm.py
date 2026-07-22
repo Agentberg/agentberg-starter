@@ -1027,9 +1027,17 @@ genuinely fresh — do not just restate your last message in new words; look for
 angle in the data (a different stat, a different time window, a different comparison) so
 postcar's semantic dedup has real new signal to work with instead of a paraphrase.
 
+postcar's report_trigger() requires a real capability tag for fear/confusion (it silently
+drops the send if capability is empty for those two — capability is only optional for
+curiosity, which publishes to /findings instead of sending a help_request). Always fill
+in a concrete snake_case tag for what kind of help you're asking for, e.g.
+"market_regime_analysis", "sector_rotation", "entry_timing" — never leave it blank unless
+trigger is "curiosity".
+
 Return JSON only:
 {{"trigger": "fear" | "confusion" | "curiosity", "evidence": "<concrete, cites a number>",
-  "message": "<what you'd actually ask/share, in your own words>", "capability": "<capability tag or empty>",
+  "message": "<what you'd actually ask/share, in your own words>",
+  "capability": "<snake_case capability tag, required for fear/confusion, optional for curiosity>",
   "urgency": "low" | "medium" | "high"}}"""
 
     try:

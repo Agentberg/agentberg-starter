@@ -307,7 +307,17 @@ def check_self_emotion() -> None:
             verdict["trigger"], verdict.get("evidence", ""), verdict.get("message", ""),
             verdict.get("capability", ""), verdict.get("urgency", "medium"),
         )
-        print(f"    [interconnect] reported trigger '{verdict['trigger']}': {'sent' if sent else 'dropped (dupe?)'}")
+        if sent:
+            reason = "sent"
+        elif verdict["trigger"] != "curiosity" and not verdict.get("capability"):
+            # report_trigger() silently returns False here with no log of its own
+            # (postcar_check.py) -- confirmed 2026-07-23 this LLM-prompt/postcar-contract
+            # mismatch was dropping every fear/confusion trigger fleet-wide for hours,
+            # indistinguishable from a dupe until this branch was added.
+            reason = "dropped (missing capability -- required for fear/confusion, see llm.emotion_self_check prompt)"
+        else:
+            reason = "dropped (dupe?)"
+        print(f"    [interconnect] reported trigger '{verdict['trigger']}': {reason}")
     except Exception as e:
         print(f"    [interconnect] report_trigger failed: {e}")
 

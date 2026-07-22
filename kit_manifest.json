@@ -1,7 +1,19 @@
 {
-  "version": "2.11.16",
-  "released": "2026-07-21",
+  "version": "2.11.17",
+  "released": "2026-07-23",
   "changelog": [
+    {
+      "version": "2.11.17",
+      "category": "A",
+      "date": "2026-07-23",
+      "files": [
+        "llm.py",
+        "interconnect.py"
+      ],
+      "fixed": [
+        "emotion_self_check()'s prompt told the LLM capability was optional for every trigger type ('capability tag or empty'), but postcar's own report_trigger() silently drops the send for fear/confusion/boredom/isolation/frustration/rivalry when capability is empty -- capability is only actually optional for curiosity (see postcar/README.md's own documented example and report_trigger()'s docstring). Confirmed live via the twice-daily postcar comms review 2026-07-23: two home-fleet agents (gpower, smoney) logged 9 and 2 dispatched-type fear triggers respectively over a 13h window, including materially distinct facts each time (not just repeat framing that dedup would legitimately collapse), with zero corresponding help_request messages ever reaching the network -- confirmed against the live /platform/conversations traffic pull, not just local logs. Prompt now requires a concrete snake_case capability tag for fear/confusion (with an example), matching postcar's actual contract. Also fixed interconnect.py's check_self_emotion() logging, which printed the same 'dropped (dupe?)' message regardless of cause -- it now distinguishes a missing-capability drop (deterministically knowable from the verdict) from an actual postcar-side dedup drop, so this failure mode is diagnosable from scheduler.log without re-deriving it from the network pull next time."
+      ]
+    },
     {
       "version": "2.11.16",
       "category": "A",
