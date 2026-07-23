@@ -688,7 +688,9 @@ def trade_decision(
     except Exception as e:
         ticker = candidate.get("ticker", "?")
         print(f"    [{adapter.NAME}] L3 {ticker} failed ({e}) — halting (safety)")
-        return dict(_defaults)
+        result = dict(_defaults)
+        result["reason"] = f"LLM unavailable — skipped for safety ({str(e)[:150]})"
+        return result
 
 
 # ────────────────────────────────────────────────────────────────────────────

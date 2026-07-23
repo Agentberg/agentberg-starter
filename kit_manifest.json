@@ -1,7 +1,29 @@
 {
-  "version": "2.11.17",
+  "version": "2.11.19",
   "released": "2026-07-23",
   "changelog": [
+    {
+      "version": "2.11.19",
+      "category": "B",
+      "date": "2026-07-23",
+      "files": [
+        "agent.py"
+      ],
+      "fixed": [
+        "_record_close() (L1 stop_loss/trailing_stop/dte_exit path) stored pnl_pct straight from Alpaca's unrealized_plpc, treating it as already direction-correct per its own comment -- it isn't for shorts (Alpaca's plpc = unrealized_pl/cost_basis, and cost_basis is reported negative for shorts, so a losing short's negative pnl divided by a negative cost_basis comes out positive). Confirmed live 2026-07-23 against gpower's own trade data and root-caused on the agentberg server side too (database.py's close_trade() had the identical unsigned-recompute bug, separately fixed and backfilled network-wide). This kit-side fix makes the local kit's own stored/reported pnl_pct trade_type-aware (same sign flip already correctly applied to the dollar pnl in this function), and removes the now-incorrect sign multiply from the exit_price-derivation fallback (that formula needs the raw, unsigned price-change fraction, not the P&L-direction-adjusted one)."
+      ]
+    },
+    {
+      "version": "2.11.18",
+      "category": "B",
+      "date": "2026-07-23",
+      "files": [
+        "llm.py"
+      ],
+      "fixed": [
+        "trade_decision() (L3) swallowed the real exception on LLM failure -- report_issue() only ever received a fixed generic reason ('LLM unavailable -- skipped for safety'), so the L3_EXECUTION_FAILURE support trap visible via the admin API carried no debugging signal. Confirmed live: sigmaforge-8889 hit this repeatedly on the same ticker (RKLB) across several sessions with no way to tell why from outside its own machine. The except block now folds str(e)[:150] into the reported reason, so the real failure (rate limit, malformed candidate payload, subprocess timeout, etc.) is visible from the support case without needing local log access to the agent's box."
+      ]
+    },
     {
       "version": "2.11.17",
       "category": "A",

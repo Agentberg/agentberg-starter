@@ -1974,24 +1974,32 @@ def _record_close(symbol: str, reason: str, pnl_pct: float, close_order: dict | 
     qty = trade.get("qty") or 0
     mult = trade.get("multiplier") or 1
     # qty is always stored positive; direction lives in trade_type. pnl_pct (the
-    # incoming param) is already direction-correct -- it comes from Alpaca's own
-    # unrealized_plpc -- but a dollar pnl computed directly from (exit-entry) needs
-    # the same sign flip applied, or a short's dollar pnl comes out backwards.
+    # incoming param) is Alpaca's raw unrealized_plpc -- a RAW price-change percent
+    # (positive when price rose), not P&L-direction-adjusted. Verified live 2026-07-23:
+    # gpower's short COP close (entry 115.68 -> exit 118.80, price up, a real loss)
+    # stored pnl_pct=+2.70% -- Alpaca's plpc for shorts is unrealized_pl/cost_basis,
+    # and cost_basis is reported negative for shorts, so a negative (losing)
+    # unrealized_pl divided by a negative cost_basis comes out positive. The dollar
+    # pnl below already applies `sign` and was correct; pnl_pct was stored raw and
+    # came out backwards for every short close through this path.
     sign = -1 if "short" in (trade.get("trade_type") or "") else 1
-    # Use Alpaca's actual fill price from the close order; fall back to computing from entry + pnl_pct
+    signed_pct = pnl_pct * sign
+    # Use Alpaca's actual fill price from the close order; fall back to computing from
+    # entry + the raw (unsigned) price-change pct -- exit_price tracks price direction
+    # directly, so it must NOT have `sign` applied (sign only matters for P&L, not price).
     exit_price = float(close_order.get("filled_avg_price") or 0) if close_order else 0.0
     if not exit_price and entry_price:
-        exit_price = round(entry_price * (1 + pnl_pct * sign), 4)
-    pnl_dollars = (exit_price - entry_price) * qty * mult * sign if (exit_price and entry_price) else entry_price * qty * mult * pnl_pct
+        exit_price = round(entry_price * (1 + pnl_pct), 4)
+    pnl_dollars = (exit_price - entry_price) * qty * mult * sign if (exit_price and entry_price) else entry_price * qty * mult * signed_pct
     memory.record_trade_close(
-        trade["id"], exit_price=exit_price, pnl=pnl_dollars, pnl_pct=pnl_pct, exit_reason=reason,
+        trade["id"], exit_price=exit_price, pnl=pnl_dollars, pnl_pct=signed_pct, exit_reason=reason,
         exit_order_id=close_order.get("id") if close_order else None,
         closed_at=close_order.get("filled_at") if close_order else None,
         exit_commission=float(close_order.get("commission") or 0) if close_order else 0.0,
     )
-    print(f"    [journal] {symbol} closed {pnl_pct:+.1%} @ ${exit_price:.2f} ({reason})")
+    print(f"    [journal] {symbol} closed {signed_pct:+.1%} @ ${exit_price:.2f} ({reason})")
     if trade.get("network_trade_id"):
-        _agentberg.close_trade(trade["network_trade_id"], pnl=pnl_dollars, pnl_pct=pnl_pct,
+        _agentberg.close_trade(trade["network_trade_id"], pnl=pnl_dollars, pnl_pct=signed_pct,
                                exit_price=exit_price or None, exit_reason=reason,
                                exit_date=datetime.date.today().isoformat())
     _vote_outcome(trade, pnl_dollars)
