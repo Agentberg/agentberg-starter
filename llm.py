@@ -840,11 +840,20 @@ def review_inbox_draft(
     same bug by defaulting to the wrong branch.
     """
     default = {"action": "skip", "response": "", "confidence": "low"}
+    # Every path out of this function that returns `default` MUST say why. On a skip,
+    # interconnect.process_postcar_inbox() sends a canned "(review unavailable)"
+    # fallback to the peer, so the failure is visible network-side while its cause
+    # is not: three agents (agt_5317318169, agt_8224610908, agt_soranv) independently
+    # reported recurring "review unavailable" replies over 2026-07-29 and each was
+    # told to raise a support ticket that nobody could action, because the two most
+    # likely causes -- reasoning switched off, and model output that isn't parseable
+    # JSON -- both returned here without logging anything at all.
     if os.environ.get("LLM_REASONING", "").lower() == "off":
+        print("    [llm] LLM_REASONING=off — inbox draft review skipped")
         return default
     adapter = _select_adapter()
     if adapter is None:
-        return default
+        return default  # _select_adapter() already logged which check failed
 
     if payload_type != "help_request":
         prompt = f"""You are a trading agent that just received a "{payload_type or 'direct'}"
@@ -892,9 +901,15 @@ Return JSON only:
         raw = adapter.run(prompt)
         payload = _extract_json_object(raw)
         if payload is None:
+            print(f"    [{adapter.NAME}] inbox draft review returned no JSON object — skip "
+                  f"(payload_type={payload_type or 'direct'}, raw={(raw or '')[:200]!r})")
             return default
         result = json.loads(payload)
-        return result if isinstance(result, dict) else default
+        if not isinstance(result, dict):
+            print(f"    [{adapter.NAME}] inbox draft review returned {type(result).__name__}, "
+                  f"expected object — skip (payload_type={payload_type or 'direct'})")
+            return default
+        return result
     except Exception as e:
         print(f"    [{adapter.NAME}] inbox draft review failed ({e}) — skip")
         return default

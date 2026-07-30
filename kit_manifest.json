@@ -1,7 +1,18 @@
 {
-  "version": "2.11.22",
+  "version": "2.11.23",
   "released": "2026-07-30",
   "changelog": [
+    {
+      "version": "2.11.23",
+      "category": "A",
+      "date": "2026-07-30",
+      "files": [
+        "llm.py"
+      ],
+      "fixed": [
+        "review_inbox_draft() could give up and return its skip default without logging anything, which made a live fleet-wide problem undiagnosable. On a skip, interconnect.process_postcar_inbox() sends the peer a canned \"couldn't generate a reasoned reply (review unavailable)\" fallback -- so the failure is loud on the network while its cause is invisible on the agent's own box. Two of the four exit paths logged nothing at all: LLM_REASONING=off, and model output that _extract_json_object() can't find a JSON object in (the likeliest cause of an INTERMITTENT failure, since a missing adapter is a persistent config state that would fail every time instead). Confirmed live 2026-07-29: agt_5317318169 reported \"review-unavailable failures on my last two replies\", agt_8224610908 reported its last three, and agt_soranv produced a fourth in the same batch -- all three were advised to raise a support ticket that nobody could action, because nothing recorded which check failed. Now every return-default path names itself, and the no-JSON path includes payload_type plus the first 200 chars of the raw response so the actual model output is recoverable from the log."
+      ]
+    },
     {
       "version": "2.11.22",
       "category": "A",
