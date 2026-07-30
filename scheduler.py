@@ -78,6 +78,13 @@ log = logging.getLogger(__name__)
 # lives here, not in schedule_config.py.
 HEARTBEAT_IDLE_INTERVAL_SECS = 3600
 
+# How late a session may fire and still be worth running. A missed 09:35 momentum
+# session recovered at 10:30 is the same trade; recovered at 15:45 it is a
+# different strategy on stale signals, so past this bound the session is skipped
+# LOUDLY (log.warning) rather than fired or silently dropped. Infrastructure, not
+# agent customisation -- lives here, not in schedule_config.py.
+SESSION_RECOVERY_GRACE_SECS = 5400  # 90 minutes
+
 # ── Internal helpers ────────────────────────────────────────────────────────────
 
 def _is_market_hours() -> bool:
@@ -123,15 +130,33 @@ def _sleep_with_heartbeat(total_seconds: float) -> None:
     otherwise fires from the finally: block after a trading session actually runs,
     which never happens on a holiday). This is heartbeat only -- it does not call
     auto_upgrade_check or anything upgrade-related; that stays exactly where it is,
-    checked once at startup before the main loop begins."""
-    remaining = total_seconds
-    while remaining > 0:
-        chunk = min(HEARTBEAT_IDLE_INTERVAL_SECS, remaining)
-        time.sleep(chunk)
-        remaining -= chunk
+    checked once at startup before the main loop begins.
+
+    Deadline-based, NOT remaining-based: the wake time is fixed once, up front, and
+    every iteration re-reads the wall clock. This matters because time.sleep() is
+    suspend-blind -- when the Mac suspends (lid closed, or on battery where
+    `caffeinate -s` doesn't hold), the process freezes and a 1h chunk can consume
+    7h+ of real time. The old version decremented `remaining` by the *intended*
+    chunk size, so it kept sleeping more chunks after already overshooting; a
+    declared 3.0h sleep observed on 2026-07-29 ran ~10h and skipped every session
+    that day. Comparing against an absolute deadline means an overshoot ends the
+    sleep immediately and hands control back to the main loop."""
+    deadline = core.now_et() + datetime.timedelta(seconds=total_seconds)
+    while True:
+        remaining = (deadline - core.now_et()).total_seconds()
+        if remaining <= 0:
+            return
+        time.sleep(min(HEARTBEAT_IDLE_INTERVAL_SECS, remaining))
         core.write_heartbeat()
         core.send_network_heartbeat()
         _run_interconnect()
+        overshoot = -(deadline - core.now_et()).total_seconds()
+        if overshoot > 300:
+            log.warning(
+                f"[sleep] Woke {overshoot/3600:.2f}h past the intended wake time — "
+                f"machine likely suspended. Returning to main loop for session recovery."
+            )
+            return
 
 
 def run_monitor() -> None:
@@ -167,7 +192,18 @@ def _run_missed_sessions(last_ran: dict) -> None:
             hour=session_time.hour, minute=session_time.minute, second=0, microsecond=0
         )
         if now > session_dt and _should_run_session(label, last_ran):
-            log.info(f"[{label}] Missed session — running now (recovery)")
+            # Same grace bound as the main loop -- startup recovery and mid-loop
+            # recovery must agree, or a restart would fire sessions the running
+            # loop would have refused as stale.
+            elapsed_secs = (now - session_dt).total_seconds()
+            if elapsed_secs > SESSION_RECOVERY_GRACE_SECS:
+                log.warning(
+                    f"[{label}] SKIPPED at startup — {elapsed_secs/3600:.1f}h past its slot, "
+                    f"beyond the {SESSION_RECOVERY_GRACE_SECS/3600:.1f}h recovery grace."
+                )
+                _mark_ran(label, last_ran)
+                continue
+            log.info(f"[{label}] Missed session — running now (recovery, {elapsed_secs/60:.0f}m late)")
             try:
                 run_session()
                 _mark_ran(label, last_ran)
@@ -211,17 +247,36 @@ def _main_loop() -> None:
                 )
                 elapsed_secs = (now - session_today).total_seconds()
 
-                if 0 <= elapsed_secs < (MONITOR_INTERVAL_SECS + 60) and _should_run_session(label, last_ran):
-                    log.info(f"[{label}] Firing session")
-                    try:
-                        run_session()
-                        _mark_ran(label, last_ran)
-                        log.info(f"[{label}] Session complete")
-                    except Exception as e:
-                        log.error(f"[{label}] Session failed: {e}")
-                        _mark_ran(label, last_ran)
-                    finally:
-                        core.send_network_heartbeat()
+                if elapsed_secs < 0 or not _should_run_session(label, last_ran):
+                    continue
+
+                # Any session whose time has passed and that hasn't run today is
+                # eligible -- not just one caught inside a 6-minute window. The old
+                # condition was `elapsed_secs < MONITOR_INTERVAL_SECS + 60` (360s):
+                # if the loop wasn't executing during that exact window the session
+                # was skipped for the day, silently, with heartbeats still green.
+                # Combined with suspend-blind sleeps that is what cost SMoney and
+                # gpower four trading days (07-27 -> 07-30, zero sessions fired).
+                if elapsed_secs > SESSION_RECOVERY_GRACE_SECS:
+                    log.warning(
+                        f"[{label}] SKIPPED — {elapsed_secs/3600:.1f}h past its slot, "
+                        f"beyond the {SESSION_RECOVERY_GRACE_SECS/3600:.1f}h recovery grace. "
+                        f"Not firing on stale signals. Marking done for today."
+                    )
+                    _mark_ran(label, last_ran)
+                    continue
+
+                late = f" (recovery, {elapsed_secs/60:.0f}m late)" if elapsed_secs > 360 else ""
+                log.info(f"[{label}] Firing session{late}")
+                try:
+                    run_session()
+                    _mark_ran(label, last_ran)
+                    log.info(f"[{label}] Session complete")
+                except Exception as e:
+                    log.error(f"[{label}] Session failed: {e}")
+                    _mark_ran(label, last_ran)
+                finally:
+                    core.send_network_heartbeat()
 
             if _is_market_hours():
                 run_monitor()
