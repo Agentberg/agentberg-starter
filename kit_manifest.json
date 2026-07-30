@@ -1,7 +1,18 @@
 {
-  "version": "2.11.24",
+  "version": "2.11.25",
   "released": "2026-07-30",
   "changelog": [
+    {
+      "version": "2.11.25",
+      "category": "A",
+      "date": "2026-07-30",
+      "files": [
+        "interconnect.py"
+      ],
+      "fixed": [
+        "Two diagnostics in process_postcar_inbox() that pointed at the wrong thing. (1) An empty or unrecognised payload_type was grouped with help_request when picking the skip fallback, so it got the query-shaped \"No relevant data on my end\" text -- contradicting the policy review_inbox_draft() states for the same decision, where everything except help_request is treated as report-shaped precisely so a payload_type added later cannot reintroduce the illogical \"no relevant data\" reply to a message about the agent's own data. Only help_request now takes the query-shaped branch. (2) pc.reply() returns False for two structurally different reasons and the log only ever named one: a send that raised (postcar prints its own \"reply send failed\" line and leaves the entry pending, so the next cycle retries) versus no pending entry matching thread_id (terminal). Reporting a transient HTTP 429 as \"no matching pending entry\" sent diagnosis the wrong way -- gpower's log carries six such 429s on 2026-07-29/30, every one of them retryable and none of them a missing entry. The two cases are now distinguished."
+      ]
+    },
     {
       "version": "2.11.24",
       "category": "A",

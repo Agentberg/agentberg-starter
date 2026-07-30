@@ -140,13 +140,35 @@ def process_postcar_inbox() -> None:
             confidence = verdict.get("confidence") or entry.get("draft_confidence", "low")
         else:
             payload_type = entry.get("payload_type", "")
-            response = _NO_INFO_FALLBACK if payload_type in ("", "help_request") else _REPORT_FALLBACK
+            # Only the one confirmed-interrogative type gets the query-shaped
+            # "no relevant data" text. An empty or unrecognised payload_type used to
+            # be grouped with help_request here, which contradicted the policy
+            # review_inbox_draft() states for the same decision -- everything except
+            # help_request is treated as report-shaped precisely so a payload_type
+            # added later can't reintroduce the illogical "no relevant data" reply to
+            # a message about the agent's own data.
+            response = _NO_INFO_FALLBACK if payload_type == "help_request" else _REPORT_FALLBACK
             confidence = "low"
 
         try:
             sent = pc.reply(entry["thread_id"], response, confidence)
+            # pc.reply() returns False for two structurally different reasons and this
+            # only ever named one of them: a send that raised (it prints its own
+            # "[postcar] reply send failed" line and leaves the entry pending, so the
+            # next cycle retries) versus no pending entry matching thread_id (terminal
+            # -- already resolved, expired, or never existed). Reporting a transient
+            # HTTP 429 as "no matching pending entry" sent diagnosis the wrong way;
+            # gpower's log carries six of those on 2026-07-29/30.
+            still_pending = any(e.get("thread_id") == entry["thread_id"]
+                                for e in pc.get_pending_inbox())
+            if sent:
+                outcome = "sent"
+            elif still_pending:
+                outcome = "send failed, still pending — will retry next cycle"
+            else:
+                outcome = "no matching pending entry"
             print(f"    [interconnect] {action} inbox reply to "
-                  f"{entry.get('from_agent', '?')[:12]}: {'sent' if sent else 'no matching pending entry'}")
+                  f"{entry.get('from_agent', '?')[:12]}: {outcome}")
         except Exception as e:
             print(f"    [interconnect] reply() failed: {e}")
 
