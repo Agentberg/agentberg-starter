@@ -1,7 +1,18 @@
 {
-  "version": "2.11.25",
+  "version": "2.11.26",
   "released": "2026-07-30",
   "changelog": [
+    {
+      "version": "2.11.26",
+      "category": "A",
+      "date": "2026-07-30",
+      "files": [
+        "interconnect.py"
+      ],
+      "fixed": [
+        "Every diagnostic in interconnect.py went through bare print(), which only survives if the host process's stdout happens to be redirected to logs/scheduler.log -- true for gpower (whose launchd stdout path is that file, so its scheduler.log carries 178+ \"[interconnect]\" lines) but not SMoney, where interconnect diagnostics were invisible in every log file, ever, despite identical kit version, byte-identical run.sh, and a structurally identical launchd plist (confirmed 2026-07-27, root-caused then but blocked on an unrelated dirty-tree kit commit until 2026-07-30). Both agent.py's check_positions() path and scheduler.py's own idle-heartbeat path run inside the same process as scheduler.py's logging.basicConfig() call, which writes to logs/scheduler.log via a FileHandler independent of stdout plumbing -- so replacing print() with a module logger (propagating to that same root config) makes capture deterministic across every deployment instead of depending on how each agent's launchd stdout happens to be wired. Confirmed live 2026-07-30 during the fleet postcar comms review: SMoney's scheduler.log and every other local log still had zero \"[interconnect]\" lines for a process that demonstrably sent two peer help_request messages the same day."
+      ]
+    },
     {
       "version": "2.11.25",
       "category": "A",

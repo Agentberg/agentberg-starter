@@ -24,11 +24,24 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import sys
 from pathlib import Path
 
 import character
 import llm
+
+# Every outcome here used to go through bare print(), which only survives if
+# the host process's stdout happens to be redirected to logs/scheduler.log --
+# true for gpower (whose launchd stdout path is that file) but not SMoney,
+# where interconnect diagnostics were invisible in every log, ever (confirmed
+# 2026-07-27: 0 "[interconnect]" lines in any SMoney log vs 178 in gpower's,
+# despite identical kit/run.sh/launchd config, because interconnect.run_all()
+# demonstrably ran -- it sent replies). scheduler.py's logging.basicConfig()
+# writes both agent.py's check_positions() path and scheduler's own idle-cycle
+# path to logs/scheduler.log via this same root logger, regardless of stdout
+# plumbing, so a child logger here is captured deterministically everywhere.
+_log = logging.getLogger(__name__)
 
 _POSTCAR_DIR = Path(__file__).parent / "postcar"
 _EMOTION_STATE_FILE = Path("logs/emotion_last_check.json")
@@ -65,7 +78,7 @@ def _postcar():
         import postcar_check
         return postcar_check
     except Exception as e:
-        print(f"    [interconnect] postcar_check import failed: {e}")
+        _log.warning(f"    [interconnect] postcar_check import failed: {e}")
         return None
     finally:
         try:
@@ -114,7 +127,7 @@ def process_postcar_inbox() -> None:
     try:
         pending = pc.get_pending_inbox()
     except Exception as e:
-        print(f"    [interconnect] get_pending_inbox failed: {e}")
+        _log.warning(f"    [interconnect] get_pending_inbox failed: {e}")
         return
     if not pending:
         return
@@ -131,7 +144,7 @@ def process_postcar_inbox() -> None:
                 payload_type=entry.get("payload_type", ""),
             )
         except Exception as e:
-            print(f"    [interconnect] review_inbox_draft failed: {e}")
+            _log.warning(f"    [interconnect] review_inbox_draft failed: {e}")
             verdict = None
 
         action = (verdict or {}).get("action", "skip")
@@ -167,10 +180,10 @@ def process_postcar_inbox() -> None:
                 outcome = "send failed, still pending — will retry next cycle"
             else:
                 outcome = "no matching pending entry"
-            print(f"    [interconnect] {action} inbox reply to "
-                  f"{entry.get('from_agent', '?')[:12]}: {outcome}")
+            _log.info(f"    [interconnect] {action} inbox reply to "
+                      f"{entry.get('from_agent', '?')[:12]}: {outcome}")
         except Exception as e:
-            print(f"    [interconnect] reply() failed: {e}")
+            _log.warning(f"    [interconnect] reply() failed: {e}")
 
 
 def process_postcar_guidance() -> None:
@@ -184,7 +197,7 @@ def process_postcar_guidance() -> None:
     try:
         entries = json.loads(guidance_file.read_text())
     except Exception as e:
-        print(f"    [interconnect] guidance read failed: {e}")
+        _log.warning(f"    [interconnect] guidance read failed: {e}")
         return
 
     pending = [e for e in entries if e.get("status") == "pending"]
@@ -210,7 +223,7 @@ def process_postcar_guidance() -> None:
                 note = verdict.get("outcome_note", "")
                 commitment = verdict.get("commitment")
         except Exception as ex:
-            print(f"    [interconnect] review_guidance_outcome failed: {ex}")
+            _log.warning(f"    [interconnect] review_guidance_outcome failed: {ex}")
 
         if decision is None:
             # LLM review failed or returned garbage. Postcar's own 48h deadline
@@ -244,9 +257,9 @@ def process_postcar_guidance() -> None:
     if changed:
         try:
             guidance_file.write_text(json.dumps(entries, indent=2))
-            print(f"    [interconnect] guidance decisions written ({len(pending)} reviewed)")
+            _log.info(f"    [interconnect] guidance decisions written ({len(pending)} reviewed)")
         except Exception as e:
-            print(f"    [interconnect] guidance write failed: {e}")
+            _log.warning(f"    [interconnect] guidance write failed: {e}")
 
 
 def get_open_commitments() -> list[dict]:
@@ -268,7 +281,7 @@ def get_open_commitments() -> list[dict]:
         pc._check_commitments_overdue()  # refresh status against today's date first
         entries = pc._load_commitments()
     except Exception as e:
-        print(f"    [interconnect] commitments read failed: {e}")
+        _log.warning(f"    [interconnect] commitments read failed: {e}")
         return []
     return [e for e in entries if e.get("status") in ("open", "overdue")]
 
@@ -311,7 +324,7 @@ def check_self_emotion() -> None:
         import memory
         stats = memory.get_summary_stats(days=7)
     except Exception as e:
-        print(f"    [interconnect] stats unavailable for emotion check: {e}")
+        _log.warning(f"    [interconnect] stats unavailable for emotion check: {e}")
         return
     if stats.get("total_trades", 0) == 0:
         return  # nothing to evaluate yet — don't fabricate a trigger from no data
@@ -319,7 +332,7 @@ def check_self_emotion() -> None:
     try:
         verdict = llm.emotion_self_check(stats, character_brief=_character_brief())
     except Exception as e:
-        print(f"    [interconnect] emotion_self_check failed: {e}")
+        _log.warning(f"    [interconnect] emotion_self_check failed: {e}")
         return
     if not verdict or not verdict.get("trigger"):
         return
@@ -339,9 +352,9 @@ def check_self_emotion() -> None:
             reason = "dropped (missing capability -- required for fear/confusion, see llm.emotion_self_check prompt)"
         else:
             reason = "dropped (dupe?)"
-        print(f"    [interconnect] reported trigger '{verdict['trigger']}': {reason}")
+        _log.info(f"    [interconnect] reported trigger '{verdict['trigger']}': {reason}")
     except Exception as e:
-        print(f"    [interconnect] report_trigger failed: {e}")
+        _log.warning(f"    [interconnect] report_trigger failed: {e}")
 
 
 def _restart_pending() -> bool:
@@ -365,7 +378,7 @@ def _restart_pending() -> bool:
         flag.unlink()
     except Exception:
         pass
-    print("    [interconnect] postcar upgrade pulled -- exiting for supervisor to relaunch with new code")
+    _log.info("    [interconnect] postcar upgrade pulled -- exiting for supervisor to relaunch with new code")
     return True
 
 
