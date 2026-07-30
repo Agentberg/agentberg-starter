@@ -386,9 +386,10 @@ def reconcile_ledger():
             exit_commission=float(fill.get("commission") or 0),
         )
         if t.get("network_trade_id"):
-            _agentberg.close_trade(t["network_trade_id"], pnl=pnl, pnl_pct=pnl_pct,
-                                   exit_price=exit_price, exit_reason="manual",
-                                   exit_date=datetime.date.today().isoformat())
+            if _agentberg.close_trade(t["network_trade_id"], pnl=pnl, pnl_pct=pnl_pct,
+                                      exit_price=exit_price, exit_reason="manual",
+                                      exit_date=datetime.date.today().isoformat()):
+                memory.mark_trade_close_synced(t["id"])
         reconciled += 1
     if registered:
         print(f"[reconcile] Registered {registered} newly-confirmed trade(s) with the network")
@@ -1765,9 +1766,10 @@ def check_positions():
                                       exit_commission=float(close_order.get("commission") or 0))
             print(f"    [journal] {trade['symbol']} closed {net_pct:+.1%} ({reason}) — review with `python journal.py`")
             if trade.get("network_trade_id"):
-                _agentberg.close_trade(trade["network_trade_id"], pnl=net_pl_dollars, pnl_pct=net_pct,
-                                       exit_price=exit_price or None, exit_reason=reason,
-                                       exit_date=datetime.date.today().isoformat())
+                if _agentberg.close_trade(trade["network_trade_id"], pnl=net_pl_dollars, pnl_pct=net_pct,
+                                          exit_price=exit_price or None, exit_reason=reason,
+                                          exit_date=datetime.date.today().isoformat()):
+                    memory.mark_trade_close_synced(trade["id"])
             _vote_outcome(trade, net_pl_dollars)
         except Exception as e:
             print(f"[monitor] Spread close failed {trade['symbol']}: {e}")
@@ -1999,9 +2001,10 @@ def _record_close(symbol: str, reason: str, pnl_pct: float, close_order: dict | 
     )
     print(f"    [journal] {symbol} closed {signed_pct:+.1%} @ ${exit_price:.2f} ({reason})")
     if trade.get("network_trade_id"):
-        _agentberg.close_trade(trade["network_trade_id"], pnl=pnl_dollars, pnl_pct=signed_pct,
-                               exit_price=exit_price or None, exit_reason=reason,
-                               exit_date=datetime.date.today().isoformat())
+        if _agentberg.close_trade(trade["network_trade_id"], pnl=pnl_dollars, pnl_pct=signed_pct,
+                                  exit_price=exit_price or None, exit_reason=reason,
+                                  exit_date=datetime.date.today().isoformat()):
+            memory.mark_trade_close_synced(trade["id"])
     _vote_outcome(trade, pnl_dollars)
 
 
@@ -2043,6 +2046,27 @@ def _maybe_publish(blocked_sectors: list[str], regime: str | None):
     """
     print("[5] Contributing to Agentberg...")
     published = 0
+
+    # ── 0. Retry any close_trade() reports that failed at close time ───────────────
+    # close_trade() is called inline (best-effort) the moment a position closes, but
+    # that call is fire-and-forget -- a single timeout/5xx there used to mean the
+    # server's copy of the trade stayed "open" forever even though it was closed
+    # locally and on the broker. This is the durable retry: same pattern as the
+    # trades-publish outbox below, just for the close-report instead of the initial
+    # publish.
+    unsynced_closes = memory.get_unsynced_network_closes()
+    resynced = 0
+    for t in unsynced_closes:
+        result = _agentberg.close_trade(
+            t["network_trade_id"], pnl=t.get("pnl") or 0.0, pnl_pct=t.get("pnl_pct") or 0.0,
+            exit_price=t.get("exit_price"), exit_reason=t.get("exit_reason") or "manual",
+            exit_date=(t.get("closed_at") or "")[:10] or None,
+        )
+        if result:
+            memory.mark_trade_close_synced(t["id"])
+            resynced += 1
+    if unsynced_closes:
+        print(f"    Close-reports resynced: {resynced}/{len(unsynced_closes)}")
 
     # ── 1. Trades — publish ALL closed trades exactly once, with real P&L ──────────
     unpublished = memory.get_unpublished_closed_trades()

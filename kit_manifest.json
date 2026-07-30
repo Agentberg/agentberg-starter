@@ -1,7 +1,19 @@
 {
-  "version": "2.11.19",
+  "version": "2.11.20",
   "released": "2026-07-23",
   "changelog": [
+    {
+      "version": "2.11.20",
+      "category": "A",
+      "date": "2026-07-23",
+      "files": [
+        "memory.py",
+        "agent.py"
+      ],
+      "fixed": [
+        "close_trade() (the PUT /trades/{id}/close report to Agentberg) was fire-and-forget with no retry -- a single transient failure (timeout, 5xx, network blip) left that trade permanently 'open' on the server even though it was closed locally and on the broker, with no mechanism to ever notice or retry. Confirmed live 2026-07-23: SMoney had 13 trades stuck open server-side (MSTR, GOOGL x2, META x2, MSFT, ABT x3, XOM x2, GS) that were already closed on Alpaca, understating its reported total_pnl. Root cause recurred across miniG (2026-07-21) and jeeboo (2026-07-17, reopened, refixed 2026-07-21) because each prior fix patched the data, not this code path -- same kit bug on every agent whose close-report network call happened to fail once. Fix mirrors the existing published_at retry-until-success pattern used for the trades-publish outbox: new network_close_synced_at column on trades, get_unsynced_network_closes()/mark_trade_close_synced() in memory.py, and a retry pass in agent.py's _maybe_publish() (runs every session cycle) that re-attempts close_trade() for anything not yet confirmed synced. The inline close_trade() call at each of the 3 close sites remains as the fast path; this is the durable safety net when that fails."
+      ]
+    },
     {
       "version": "2.11.19",
       "category": "B",

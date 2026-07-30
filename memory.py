@@ -128,7 +128,14 @@ def init_db():
                          # order fill?" directly instead of searching recent orders for
                          # the symbol and guessing which one was the real exit.
                          ("stop_order_id", "TEXT"),
-                         ("take_profit_order_id", "TEXT")]:
+                         ("take_profit_order_id", "TEXT"),
+                         # network close-report marker — set once close_trade() succeeds for
+                         # a trade that has a network_trade_id. Mirrors published_at's
+                         # retry-until-success pattern below (see get_unsynced_network_closes):
+                         # close_trade() used to be fire-and-forget with no retry, so a single
+                         # transient failure left the trade "open" on the server forever even
+                         # though it was closed locally and on the broker.
+                         ("network_close_synced_at", "TEXT")]:
             try:
                 conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
             except sqlite3.OperationalError:
@@ -480,6 +487,27 @@ def mark_trade_published(trade_id: int) -> None:
     now = datetime.datetime.now().isoformat(timespec="seconds")
     with _conn() as conn:
         conn.execute("UPDATE trades SET published_at=? WHERE id=?", (now, trade_id))
+
+
+def get_unsynced_network_closes() -> list[dict]:
+    """Closed trades that have a network_trade_id (server already knows this trade as
+    OPEN) but whose close_trade() report never confirmed success — oldest first.
+    Retried every cycle until it lands, same durability as get_unpublished_closed_trades()."""
+    with _conn() as conn:
+        rows = conn.execute(
+            """SELECT id, network_trade_id, exit_price, pnl, pnl_pct, exit_reason, closed_at
+               FROM trades
+               WHERE status='closed' AND network_trade_id IS NOT NULL
+                     AND network_close_synced_at IS NULL
+               ORDER BY id ASC""",
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_trade_close_synced(trade_id: int) -> None:
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    with _conn() as conn:
+        conn.execute("UPDATE trades SET network_close_synced_at=? WHERE id=?", (now, trade_id))
 
 
 def void_trade(trade_id: int) -> None:
