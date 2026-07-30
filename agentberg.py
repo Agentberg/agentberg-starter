@@ -524,7 +524,8 @@ class AgentbergClient:
                        candidates_count_after_filters: int | None = None,
                        last_trade_at: str | None = None,
                        filter_funnel: dict | None = None,
-                       llm_provider: str | None = None) -> dict:
+                       llm_provider: str | None = None,
+                       last_session_at: str | None = None) -> dict:
         """Send agent telemetry: kit version, universe size, filter funnel breakdown,
         available candidates, and which ranking provider is actually active this
         session ('claude'/'gemini'/etc, or 'rule_based' -- see llm.active_provider_name()).
@@ -538,6 +539,12 @@ class AgentbergClient:
             "candidates_count_after_filters": candidates_count_after_filters,
             "last_trade_at": last_trade_at,
             "llm_provider": llm_provider,
+            # When this agent last COMPLETED a trading session. Sent on EVERY
+            # heartbeat, including the hourly idle pings, because the whole point is
+            # that a long gap stays visible: universe_size/candidates_count/
+            # filter_funnel are omitted from idle pings and COALESCEd server-side, so
+            # without this the dashboard cannot tell a fresh scan from a week-old one.
+            "last_session_at": last_session_at,
         }
         if filter_funnel is not None:
             payload["filter_funnel"] = filter_funnel

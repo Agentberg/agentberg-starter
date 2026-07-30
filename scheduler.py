@@ -123,6 +123,16 @@ def _mark_ran(label: str, last_ran: dict) -> None:
     core.save_state(last_ran)
 
 
+def _mark_session_completed(last_ran: dict) -> None:
+    """Stamp the wall-clock time a session actually finished, separate from the
+    per-label date in _mark_ran(). The date alone can't distinguish "ran today" from
+    "ran at 09:35 six days ago", and it is also written on the skip/failure paths --
+    this is only ever called after a session genuinely completed. Reported to the
+    network on every heartbeat so a session gap is visible without log access."""
+    last_ran["last_session_completed_at"] = core.now_et().isoformat(timespec="seconds")
+    core.save_state(last_ran)
+
+
 def _sleep_with_heartbeat(total_seconds: float) -> None:
     """Sleep in chunks, sending a heartbeat between each -- not one giant blocking
     time.sleep(). A holiday/long-weekend wait can span 70+ hours; without this, the
@@ -207,6 +217,7 @@ def _run_missed_sessions(last_ran: dict) -> None:
             try:
                 run_session()
                 _mark_ran(label, last_ran)
+                _mark_session_completed(last_ran)
                 log.info(f"[{label}] Missed session complete")
             except Exception as e:
                 log.error(f"[{label}] Missed session failed: {e} — marking done, not retrying")
@@ -271,6 +282,7 @@ def _main_loop() -> None:
                 try:
                     run_session()
                     _mark_ran(label, last_ran)
+                    _mark_session_completed(last_ran)
                     log.info(f"[{label}] Session complete")
                 except Exception as e:
                     log.error(f"[{label}] Session failed: {e}")

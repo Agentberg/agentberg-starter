@@ -137,8 +137,14 @@ def send_network_heartbeat() -> None:
         # server COALESCEs missing fields onto the existing value, so leaving it out
         # preserves the real post-injection scan count from the last full session
         # instead of clobbering it with a lower static watchlist-size approximation.
+        # last_session_at IS sent here, unlike the scan-telemetry fields above. Those
+        # are omitted so the server's COALESCE preserves the last real session's
+        # numbers; the cost is that they then look current forever. This field is the
+        # antidote and only works if it rides every ping, idle ones included --
+        # that is precisely when the operator needs to know a session hasn't run.
         AgentbergClient(cfg.AGENTBERG_URL, cfg.AGENT_ID).send_heartbeat(
-            kit_version=kit_version
+            kit_version=kit_version,
+            last_session_at=load_state().get("last_session_completed_at"),
         )
         log.debug("[heartbeat] sent")
     except Exception as e:

@@ -1,7 +1,20 @@
 {
-  "version": "2.11.21",
+  "version": "2.11.22",
   "released": "2026-07-30",
   "changelog": [
+    {
+      "version": "2.11.22",
+      "category": "A",
+      "date": "2026-07-30",
+      "files": [
+        "scheduler.py",
+        "scheduler_core.py",
+        "agentberg.py"
+      ],
+      "fixed": [
+        "The network heartbeat proved a process was alive and nothing more, so an agent that had stopped running trading sessions was indistinguishable from a healthy one. send_network_heartbeat() deliberately omits universe_size/candidates_count_after_filters/filter_funnel (the server COALESCEs them, preserving the last real session's post-injection scan counts rather than clobbering them with a lower static approximation) -- but the consequence is that those numbers then look current forever. Confirmed live: SMoney and gpower fired ZERO sessions across 07-27 -> 07-30 while heartbeating hourly, both still reporting '3 candidates, universe 88/85' from their last real session on 07-24, and no dashboard view could reveal it; the outage was only found by reading local scheduler logs. Fix: _mark_session_completed() stamps a wall-clock last_session_completed_at into logs/scheduler_state.json on genuine session completion only (not on the skip or failure paths, unlike _mark_ran's per-label date), and send_network_heartbeat() now reports it as last_session_at on EVERY heartbeat including idle hourly pings -- which is exactly when the operator needs to see that no session has run. Pairs with the agentberg server change adding agents.last_session_at plus a derived hours_since_session on the operator dashboard. Kit-side this is purely additive: a field on an existing payload, no behaviour change to trading."
+      ]
+    },
     {
       "version": "2.11.21",
       "category": "A",
