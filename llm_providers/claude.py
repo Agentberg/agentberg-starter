@@ -21,9 +21,21 @@ def run(prompt: str) -> str:
     # the model never invokes Bash/Read/file tools, so loading their schemas is
     # pure overhead. Measured ~87% cache-read / ~44% cost reduction with no
     # output-quality change (postcar_check.py's own _LLM_MINIMAL_TOOLS_ARGS).
+    #
+    # 180s, not the 60s this used to carry. The comment above is no longer the
+    # whole truth: llm.review_inbox_draft() sends a ~2.5k-char peer/platform
+    # message and asks for a full reasoned prose reply, which is generation, not
+    # classification, and routinely overran a minute. 60s was also out of line
+    # with every sibling adapter serving the identical run(prompt) interface
+    # (gemini 150s, openai 180s), so this was a mis-set value rather than a
+    # deliberate budget. Confirmed live 2026-07-29/30: gpower's log carries 17
+    # "timed out after 60 seconds" kills, and on a timeout review_inbox_draft()
+    # returns skip, which makes interconnect send the peer a canned
+    # "(review unavailable)" non-answer -- agt_5317318169, agt_8224610908 and
+    # agt_soranv each reported receiving a run of those.
     proc = subprocess.run(
         [find_cli("claude", "CLAUDE_BIN"), "-p", "-", "--tools", "none"], input=prompt,
-        capture_output=True, text=True, timeout=60,
+        capture_output=True, text=True, timeout=180,
     )
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or "error").strip()[:120])

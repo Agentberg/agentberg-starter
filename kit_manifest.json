@@ -1,7 +1,18 @@
 {
-  "version": "2.11.23",
+  "version": "2.11.24",
   "released": "2026-07-30",
   "changelog": [
+    {
+      "version": "2.11.24",
+      "category": "A",
+      "date": "2026-07-30",
+      "files": [
+        "llm_providers/claude.py"
+      ],
+      "fixed": [
+        "The Claude adapter killed every LLM call at 60 seconds, which was the real cause of the fleet-wide \"couldn't generate a reasoned reply (review unavailable)\" replies. run()'s budget was sized for the JSON-in/JSON-out scoring prompts its own comment describes, but llm.review_inbox_draft() feeds it a ~2.5k-char peer or platform message and asks for a full reasoned prose reply -- generation, not classification -- and that routinely overran a minute. On the resulting timeout review_inbox_draft() returns skip, and interconnect.process_postcar_inbox() then sends the peer a canned non-answer, so a local timeout surfaced on the network as the agent refusing to engage. 60s was also out of line with every sibling adapter serving the identical run(prompt) interface (gemini 150s, openai 180s), confirming a mis-set value rather than a deliberate budget. Evidence 2026-07-29/30: 17 \"timed out after 60 seconds\" kills in gpower's scheduler log, both of its logged inbox-review failures being timeouts, against agt_5317318169 reporting the failure on its last two replies, agt_8224610908 on its last three, and agt_soranv producing a fourth in the same mentoring batch. Raised to 180s to match openai."
+      ]
+    },
     {
       "version": "2.11.23",
       "category": "A",
