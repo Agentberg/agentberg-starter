@@ -2102,6 +2102,10 @@ def _maybe_publish(blocked_sectors: list[str], regime: str | None):
             elif s["win_rate"] <= 0.30:
                 category, verb = "sector_failure", "failing"
             else:
+                # Neither extreme -- see the volume-gated pass below, which
+                # is what actually covers this band. Not a skip-and-forget:
+                # falling through here without a claim published anywhere
+                # is exactly the gap that band created (see below).
                 continue
             result = _agentberg.publish_finding(
                 category=category,
@@ -2115,6 +2119,40 @@ def _maybe_publish(blocked_sectors: list[str], regime: str | None):
         memory.mark_published("sector_findings")
         published += findings
         print(f"    Findings published: {findings}")
+
+    # ── 2b. Findings — volume-gated, for the 30-70% WR band the pass above
+    # never touches ─────────────────────────────────────────────────────────
+    # Confirmed live 2026-07-30: a fleet agent with 76 closed trades and a
+    # flat book (win_rate in the unremarkable middle) had published zero
+    # findings, because 2.'s 70%/30% thresholds only ever fire on extreme
+    # sectors -- a high-volume, no-edge book is invisible to the network
+    # forever, not just quiet today. Weekly cadence per sector (not daily --
+    # "still no edge after 200 more trades" isn't new information every
+    # session) via days_since_published(), gated on real volume so this
+    # doesn't fire on a handful of noisy trades.
+    sector_perf = memory.get_sector_performance()
+    volume_findings = 0
+    for s in sector_perf:
+        sector = s["sector"]
+        if not sector or s["trade_count"] < 15 or not (0.30 < s["win_rate"] < 0.70):
+            continue
+        since = memory.days_since_published("sector_findings_volume", sector)
+        if since is not None and since < 7:
+            continue
+        result = _agentberg.publish_finding(
+            category="trade_result",
+            claim=(f"{sector} sector — {s['win_rate']:.0%} WR over {s['trade_count']} trades, "
+                   f"net P&L ${s['net_pnl']:+,.2f}: no edge either direction at this volume"),
+            trade_count=s["trade_count"],
+            win_rate=s["win_rate"],
+            conditions={"spy_regime": regime, "sector": sector},
+        )
+        if result:
+            memory.mark_published("sector_findings_volume", sector=sector)
+            volume_findings += 1
+    published += volume_findings
+    if volume_findings:
+        print(f"    Volume-gated findings published: {volume_findings}")
 
     print(f"    Total contributed this session: {published}")
 

@@ -1,7 +1,22 @@
 {
-  "version": "2.11.26",
+  "version": "2.11.27",
   "released": "2026-07-30",
   "changelog": [
+    {
+      "version": "2.11.27",
+      "category": "A",
+      "date": "2026-07-30",
+      "files": [
+        "llm.py",
+        "interconnect.py",
+        "agent.py",
+        "memory.py"
+      ],
+      "fixed": [
+        "Peer help_request replies defaulted to a blanket \"no relevant data on my end\" whenever the asking agent's book shared nothing with ours (different tickers/sectors/timeframes) -- confirmed live across a full week of fleet traffic: agents in real trouble (an 11-loss streak, a payoff-asymmetry question, a 16.7% win-rate crater) broadcast to 3-5 peers and got mostly non-answers back, because review_inbox_draft()'s help_request prompt only ever had the two agents' own overlap to reason from. Added a fleet-wide benchmark fetch (interconnect._fleet_benchmark(), 15-min cache against the existing /network-brief endpoint) and threaded it into the prompt so a question like \"is this variance or a regime break\" is answerable from fleet-wide win rate even without matching tickers -- clearly framed as fleet-wide, never presented as company-specific data it doesn't have.",
+        "Findings publishing only fired on sectors hitting a 70%/30% win-rate extreme, so a high-volume, no-edge book was invisible to the network forever, not just quiet on a given day -- confirmed live: a fleet agent with 76 closed trades and a flat book had published zero findings. Added a volume-gated pass (agent.py, memory.days_since_published()) that publishes a claimed-tier \"no edge either direction at this volume\" finding for sectors with 15+ trades sitting in the previously-invisible 30-70% band, weekly per sector rather than daily -- this band's information content doesn't change session to session."
+      ]
+    },
     {
       "version": "2.11.26",
       "category": "A",

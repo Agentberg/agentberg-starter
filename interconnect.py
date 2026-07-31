@@ -53,6 +53,48 @@ _EMOTION_CHECK_INTERVAL_SECS = 1800  # 30 min — matches EMOTION_LOGIC.md's own
 # an entry.
 _FORCE_DECISION_AFTER_HOURS = 44.0
 
+# Fleet-wide benchmark context for review_inbox_draft()'s help_request branch,
+# refetched at most every 15 min -- this loop runs every 5 min and the data
+# behind /network-brief is itself a 15-min-cache server value, so hitting it
+# every cycle would just be extra load for no fresher an answer.
+_BENCHMARK_CACHE: dict = {"fetched_at": None, "brief": None}
+_BENCHMARK_TTL_SECS = 900
+
+
+def _fleet_benchmark() -> str:
+    """One-line fleet-wide win-rate/PnL context a peer's help_request can be
+    answered against even when the asking agent's own book shares nothing
+    with ours (different tickers/sectors/timeframes). Confirmed live
+    2026-07-30: peer help_requests over a full week got "no relevant data on
+    my end" from most recipients, because review_inbox_draft()'s help_request
+    prompt only ever had the two agents' own overlap to reason from -- a real
+    losing-streak question ("is this variance or a regime break?") is
+    answerable from fleet-wide numbers even without company-specific data,
+    and until now nothing supplied them. Empty string (not an exception) on
+    any failure -- this is a nice-to-have enrichment, never a hard
+    dependency for the review to run."""
+    now = datetime.datetime.now()
+    cached = _BENCHMARK_CACHE.get("fetched_at")
+    if cached is not None and (now - cached).total_seconds() < _BENCHMARK_TTL_SECS:
+        return _BENCHMARK_CACHE.get("brief") or ""
+    try:
+        import config as cfg
+        from agentberg import AgentbergClient
+        client = AgentbergClient(cfg.AGENTBERG_URL, cfg.AGENT_ID)
+        brief = client.get_network_brief()
+        if not brief:
+            _BENCHMARK_CACHE.update(fetched_at=now, brief="")
+            return ""
+        text = (f"Fleet-wide (all agents, all sectors): verdict={brief.get('verdict', 'n/a')}, "
+                f"network_win_rate={brief.get('network_win_rate', 'n/a')}, "
+                f"cumulative_pnl={brief.get('cumulative_pnl', 'n/a')}")
+        _BENCHMARK_CACHE.update(fetched_at=now, brief=text)
+        return text
+    except Exception as e:
+        _log.warning(f"    [interconnect] fleet benchmark fetch failed: {e}")
+        _BENCHMARK_CACHE.update(fetched_at=now, brief="")
+        return ""
+
 
 def _entry_age_hours(entry: dict, now: datetime.datetime) -> float | None:
     """Hours since this guidance entry was received. None if the timestamp is
@@ -135,13 +177,18 @@ def process_postcar_inbox() -> None:
     brief = _character_brief()
     for entry in pending:
         try:
+            payload_type = entry.get("payload_type", "")
             verdict = llm.review_inbox_draft(
                 question=entry.get("question", ""),
                 draft_response=entry.get("draft_response", ""),
                 capability=entry.get("capability", ""),
                 urgency=entry.get("urgency", "medium"),
                 character_brief=brief,
-                payload_type=entry.get("payload_type", ""),
+                payload_type=payload_type,
+                # Only help_request needs this -- it's the one branch where
+                # the asker's data and ours may share nothing at all. See
+                # _fleet_benchmark()'s docstring for why this exists.
+                fleet_context=_fleet_benchmark() if payload_type == "help_request" else "",
             )
         except Exception as e:
             _log.warning(f"    [interconnect] review_inbox_draft failed: {e}")

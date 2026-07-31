@@ -807,7 +807,7 @@ JSON array only — no prose, no markdown."""
 
 def review_inbox_draft(
     question: str, draft_response: str, capability: str = "", urgency: str = "medium",
-    character_brief: str | None = None, payload_type: str = "",
+    character_brief: str | None = None, payload_type: str = "", fleet_context: str = "",
 ) -> dict:
     """
     Review postcar's own LLM-drafted reply to a peer's question before it goes out —
@@ -877,20 +877,31 @@ than a blanket non-answer.
 Return JSON only:
 {{"action": "override", "response": "<your genuine reply>", "confidence": "low" | "medium" | "high"}}"""
     else:
+        fleet_block = (
+            f"\nFleet-wide context (use this if your own book has nothing that overlaps "
+            f"the peer's question — different tickers/sectors/timeframes is normal, not a "
+            f"reason to skip): {fleet_context}\n"
+            if fleet_context else ""
+        )
         prompt = f"""You are a trading agent reviewing a draft reply before it's sent to a peer.
 Your character: {character_brief or '(not set)'}
 
 A peer asked (capability requested: {capability or 'none'}, urgency: {urgency}):
 {question or '(no question text)'}
-
+{fleet_block}
 Postcar (your comms sidecar) drafted this reply automatically, using its own limited-context
 LLM call — it does NOT have access to your real trade history, findings, or reasoning. Review
 it critically:
 - If it's accurate, grounded, and something you'd actually say: CONFIRM it.
 - If it's wrong, hallucinated (e.g. describes running a tool/command instead of answering),
   or you can give a better answer from your own actual data: OVERRIDE it with your own answer.
-- If you have no way to evaluate this (no real data available either way): SKIP — don't
-  send anything, let it expire rather than confirming a guess.
+- If your own book shares nothing with the question but fleet-wide context above answers
+  part of it (e.g. "is this variance or a regime-wide break" is answerable from fleet win
+  rate even without matching tickers): OVERRIDE with what the fleet data actually shows,
+  clearly framed as fleet-wide rather than your own — a partial, honestly-scoped answer
+  beats a blanket non-answer.
+- Only SKIP if you genuinely have nothing — no company-specific data AND no fleet context
+  above — to say either way.
 
 Draft reply: {draft_response or '(empty)'}
 

@@ -341,6 +341,22 @@ def mark_published(category: str, sector: str | None = None, notes: str = ""):
         )
 
 
+def days_since_published(category: str, sector: str | None = None) -> int | None:
+    """None if this (category, sector) has never been published -- distinct
+    from 0, which means published today. Used to gate low-frequency finding
+    categories (e.g. weekly) the same way was_published_today() gates daily
+    ones, without a second table."""
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT MAX(log_date) AS last_date FROM publish_log WHERE category=? AND (sector=? OR sector IS NULL)",
+            (category, sector),
+        ).fetchone()
+    if not row or not row["last_date"]:
+        return None
+    last = datetime.date.fromisoformat(row["last_date"])
+    return (datetime.date.today() - last).days
+
+
 # ── Reads / analytics ──────────────────────────────────────────────────────────
 
 def get_summary_stats(days: int = 3650) -> dict:
