@@ -33,10 +33,28 @@ def run(prompt: str) -> str:
     # returns skip, which makes interconnect send the peer a canned
     # "(review unavailable)" non-answer -- agt_5317318169, agt_8224610908 and
     # agt_soranv each reported receiving a run of those.
+    cli = find_cli("claude", "CLAUDE_BIN")
     proc = subprocess.run(
-        [find_cli("claude", "CLAUDE_BIN"), "-p", "-", "--tools", "none"], input=prompt,
+        [cli, "-p", "-", "--tools", "none"], input=prompt,
         capture_output=True, text=True, timeout=180,
     )
     if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or "error").strip()[:120])
+        stderr = (proc.stderr or "").strip()
+        # Some fleet CLI builds reject `--tools none` as a plain arg-parse usage
+        # error ("error: unknown option ...\n...\nFor more information, try
+        # '--help'.") instead of running -- confirmed live 2026-08-03 on
+        # VjPaperT-6490 and Kaasu-kadavul (2 agents, kit 2.11.27/2.11.28), both
+        # logging L3_EXECUTION_FAILURE support cases whose "reason" was this
+        # generic usage-error tail mislabeled as "LLM unavailable", halting
+        # every trade session-wide. Retry once without the flag so a stale/
+        # incompatible CLI binary degrades to loading all tool schemas rather
+        # than halting the agent outright.
+        if stderr.startswith("error:") or "try '--help'" in stderr:
+            proc = subprocess.run(
+                [cli, "-p", "-"], input=prompt, capture_output=True, text=True, timeout=180,
+            )
+            if proc.returncode == 0:
+                return proc.stdout
+            stderr = (proc.stderr or "error").strip()
+        raise RuntimeError(f"claude CLI exited {proc.returncode}: {stderr[:300]}")
     return proc.stdout

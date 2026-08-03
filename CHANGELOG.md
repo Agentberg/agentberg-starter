@@ -5,6 +5,11 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.29 — 2026-08-03
+
+*Files:* llm_providers/claude.py
+
+
 ## v2.11.28 — 2026-08-03
 
 *Files:* agent.py

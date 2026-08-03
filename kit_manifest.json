@@ -1,7 +1,18 @@
 {
-  "version": "2.11.28",
+  "version": "2.11.29",
   "released": "2026-08-03",
   "changelog": [
+    {
+      "version": "2.11.29",
+      "category": "A",
+      "date": "2026-08-03",
+      "files": [
+        "llm_providers/claude.py"
+      ],
+      "fixed": [
+        "L3 (final trade execution decision) was halting every candidate with a misleading \"LLM unavailable — skipped for safety\" reason whenever the local `claude` CLI rejected the `-p - --tools none` invocation as a plain argument-parse usage error (a generic \"error: ...\\n...\\nFor more information, try '--help'.\" tail, not an availability failure) -- confirmed live 2026-08-03 across two separate fleet agents (VjPaperT-6490, Kaasu-kadavul) on kit 2.11.27/2.11.28, both logging critical L3_EXECUTION_FAILURE support cases with this exact truncated tail and no earlier context, because claude.py's own error path truncated stderr to 120 chars and llm.py's wrapper re-truncated that to 150, discarding whatever usage-error detail (e.g. which flag) preceded it. Root cause: some installed `claude` CLI builds don't accept this exact `--tools` invocation shape and fail with a plain commander.js usage error instead of running. Fix: llm_providers/claude.py now detects a usage-error-shaped stderr (`error:` prefix or a \"try '--help'\" tail) and retries once without the `--tools` flag, so a stale/incompatible CLI binary degrades to loading all tool schemas instead of halting the trade session outright; if the retry also fails, the raised error now carries the CLI's exit code and up to 300 chars of stderr instead of a blind 120-char slice, so any future L3_EXECUTION_FAILURE case is actually actionable from the support queue."
+      ]
+    },
     {
       "version": "2.11.28",
       "category": "B",
