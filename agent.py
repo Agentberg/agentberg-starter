@@ -1809,10 +1809,12 @@ def check_positions():
                 continue
 
         # ── Trailing stop (all instruments) ────────────────────────────────────
-        # Tracks the highest price seen since entry. Once the position is up
-        # TRIGGER_PCT, the stop trails DISTANCE_PCT below that high — locking in
-        # gains on reversals without capping upside. Equities use tight distances
-        # (1%); options use wider ones (20%) to survive normal premium volatility.
+        # Tracks the best price seen since entry — highest for longs, lowest for
+        # shorts (a short's favorable direction is down). Once the position is up
+        # TRIGGER_PCT, the stop trails DISTANCE_PCT back from that extreme —
+        # locking in gains on reversals without capping upside. Equities use
+        # tight distances (1%); options use wider ones (20%) to survive normal
+        # premium volatility.
         if cfg.TRAILING_STOP_ENABLED:
             is_equity = asset_class == "us_equity"
             trigger_pct  = cfg.TRAILING_STOP_TRIGGER_PCT if is_equity else cfg.OPTION_TRAILING_STOP_TRIGGER_PCT
@@ -1821,15 +1823,18 @@ def check_positions():
             trade = next((t for t in open_trades
                           if t.get("long_symbol") == symbol or t["symbol"] == symbol), None)
             if trade and current_price > 0:
+                is_short = "short" in (trade.get("trade_type") or "")
                 hwm = float(trade.get("high_water_mark") or trade.get("entry_price") or current_price)
-                if current_price > hwm:
+                favorable_move = current_price < hwm if is_short else current_price > hwm
+                if favorable_move:
                     hwm = current_price
                     memory.update_high_water_mark(trade["id"], hwm)
                 if unrealised_pnl_pct >= trigger_pct:
-                    trail_stop = hwm * (1 - distance_pct)
-                    if current_price <= trail_stop:
+                    trail_stop = hwm * (1 + distance_pct) if is_short else hwm * (1 - distance_pct)
+                    triggered = current_price >= trail_stop if is_short else current_price <= trail_stop
+                    if triggered:
                         print(f"[monitor] TRAILING STOP {symbol}: "
-                              f"${current_price:.2f} below trail ${trail_stop:.2f} "
+                              f"${current_price:.2f} {'above' if is_short else 'below'} trail ${trail_stop:.2f} "
                               f"(HWM ${hwm:.2f}, up {unrealised_pnl_pct:.1%})")
                         try:
                             close_order = _close_with_retry(symbol, lambda: _alpaca.close_position(symbol))

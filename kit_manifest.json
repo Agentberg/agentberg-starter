@@ -1,7 +1,18 @@
 {
-  "version": "2.11.27",
-  "released": "2026-07-30",
+  "version": "2.11.28",
+  "released": "2026-08-03",
   "changelog": [
+    {
+      "version": "2.11.28",
+      "category": "B",
+      "date": "2026-08-03",
+      "files": [
+        "agent.py"
+      ],
+      "fixed": [
+        "Trailing-stop's high_water_mark tracking (agent.py's single-position monitor loop) only ever moved up (`if current_price > hwm: hwm = current_price`), regardless of trade_type. That's correct for a long -- highest price is the favorable extreme -- but for a short the favorable direction is the price falling, so the extreme it should track is the lowest price seen, not the highest. As written, a short's HWM only updated on rallies against the position (its worst excursion, not its best), so trail_stop = hwm*(1-distance_pct) and the current_price <= trail_stop trigger were both computed against the wrong reference point -- the trailing stop for shorts never locked in a real gain correctly. Found while analyzing whether hard exits leave money on table: 4 gpower/SMoney long-side stop_loss closes had briefly been up 2-4% (per HWM) before reversing into a realized loss, which is exactly the round-trip a working trailing stop is meant to prevent, and checking why shorts weren't showing the same protection surfaced this. Fix makes HWM tracking, the trail_stop level, and the trigger direction all side-aware (`is_short = \"short\" in trade_type`); long behavior is unchanged."
+      ]
+    },
     {
       "version": "2.11.27",
       "category": "A",
