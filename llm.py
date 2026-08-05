@@ -862,6 +862,7 @@ JSON array only — no prose, no markdown."""
 def review_inbox_draft(
     question: str, draft_response: str, capability: str = "", urgency: str = "medium",
     character_brief: str | None = None, payload_type: str = "", fleet_context: str = "",
+    own_context: str = "",
 ) -> dict:
     """
     Review postcar's own LLM-drafted reply to a peer's question before it goes out —
@@ -892,6 +893,23 @@ def review_inbox_draft(
     confirmed-interrogative type to the report-framed prompt, rather than special-
     casing just "task", so a new payload_type added later doesn't reintroduce this
     same bug by defaulting to the wrong branch.
+
+    own_context: the agent's own real performance data (trade stats, open positions,
+    losing sectors -- the same summary postcar_check.py's _build_context() already
+    builds for its own draft-generation call), plumbed through to THIS review call.
+    Root-caused 2026-08-05: the report-shaped prompt below tells the model to
+    "acknowledge specific numbers/claims" and "answer ... from your own actual data if
+    you can" while historically receiving zero real data -- draft_response is always
+    empty (see above) and fleet_context was gated to help_request only, so nothing
+    grounded ever reached this branch. A model told to cite its own numbers with none
+    supplied doesn't refuse, it fabricates plausible ones. This is the exact shape of
+    miniG-v3's "8/20 wins, net +$377" reply, verbatim-identical across replies sent
+    2026-07-27/29/29/30/08-05 against a server record of -$21,886 over 132 trades
+    (never matching ANY real ledger, local or server -- see
+    observation_agent_self_report_diverges_from_server memory) -- not stale caching,
+    since the number never budged across 9+ days of real trading, but a hallucination
+    the same near-identical prompt keeps reproducing. Empty string is a safe default
+    (matches pre-fix behavior) if the caller can't build it.
     """
     default = {"action": "skip", "response": "", "confidence": "low"}
     # Every path out of this function that returns `default` MUST say why. On a skip,
@@ -910,11 +928,21 @@ def review_inbox_draft(
         return default  # _select_adapter() already logged which check failed
 
     if payload_type != "help_request":
+        own_block = (
+            f"\nYour actual current data (the ONLY source of truth for numbers you cite --\n"
+            f"if a figure the message states isn't in here, you don't have grounds to\n"
+            f"confirm OR dispute it, say so explicitly rather than stating a number):\n"
+            f"{own_context}\n"
+            if own_context else
+            "\nYou have no real performance data available for this reply -- do not state or\n"
+            "imply any specific trade count, win rate, or P&L figure; if the message cites\n"
+            "numbers, say you can't confirm/dispute them from here rather than inventing one.\n"
+        )
         prompt = f"""You are a trading agent that just received a "{payload_type or 'direct'}"
 message (urgency: {urgency}) -- a platform check-in, a peer's direct message, or a support
 report, not a broadcast question from a peer looking for external data.
 Your character: {character_brief or '(not set)'}
-
+{own_block}
 The message:
 {question or '(no content)'}
 
@@ -926,7 +954,8 @@ a direct question from your own actual data if you can, and say what you'll do a
 flagged issue (e.g. "will flag to support@agentberg.ai"). Never reply with a generic
 "no relevant data" -- a message addressed to you specifically already concerns you by
 definition; if you genuinely can't help with a specific ask, say what's missing rather
-than a blanket non-answer.
+than a blanket non-answer. Ground every number you state in "Your actual current data"
+above -- never state a specific trade count, win rate, or P&L figure that isn't there.
 
 Return JSON only:
 {{"action": "override", "response": "<your genuine reply>", "confidence": "low" | "medium" | "high"}}"""

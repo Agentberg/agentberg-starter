@@ -1,7 +1,19 @@
 {
-  "version": "2.11.30",
-  "released": "2026-08-04",
+  "version": "2.11.31",
+  "released": "2026-08-05",
   "changelog": [
+    {
+      "version": "2.11.31",
+      "category": "A",
+      "date": "2026-08-05",
+      "files": [
+        "llm.py",
+        "interconnect.py"
+      ],
+      "fixed": [
+        "review_inbox_draft()'s report-shaped prompt (task/mentoring_note/direct_message/platform_support) was fabricating specific trade/P&L numbers when it had none to work from. Root cause: the prompt told the model to \"answer ... from your own actual data\" and \"acknowledge specific numbers/claims\", but draft_response is always empty for these payload types and fleet_context was gated to help_request only -- so the model had zero real data grounding it and invented plausible-sounding figures instead of saying so. Reproduced by miniG-v3's PostCar replies citing \"8/20 wins, net +$377\" verbatim across five separate replies (2026-07-27, 07-29 x2, 07-30, 08-05) against a server record of -$21,886 over 132 trades -- a number that never matched any real ledger, local or server, and never budged across 9+ days despite real trading, the signature of a hallucination the near-identical prompt kept reproducing rather than stale caching. Fix: new own_context param on llm.review_inbox_draft(), populated in interconnect.py::process_postcar_inbox() from postcar_check.py's existing _build_context() -- the same real trade-stats summary already built for postcar's own draft-generation call, just never plumbed into this later agent-side review step -- and passed for every payload_type. The prompt now instructs the model to ground every number in that data and explicitly say it can't confirm/dispute a figure rather than state one when own_context comes back empty."
+      ]
+    },
     {
       "version": "2.11.30",
       "category": "B",

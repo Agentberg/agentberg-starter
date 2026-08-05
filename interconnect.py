@@ -175,6 +175,19 @@ def process_postcar_inbox() -> None:
         return
 
     brief = _character_brief()
+    # Same real trade/P&L/open-position summary postcar_check.py's own draft-generation
+    # call already builds via _build_context() -- previously never reached THIS review
+    # call. Root-caused 2026-08-05: the report-shaped prompt (payload_type !=
+    # help_request) tells the model to cite "your own actual data" while every input
+    # to it (draft_response, fleet_context) was empty for that branch, so the model had
+    # nothing grounded and fabricated numbers instead -- see llm.review_inbox_draft()'s
+    # own_context docstring for the miniG-v3 case this reproduces. Empty string (not an
+    # exception) on any failure, same fallback discipline as _fleet_benchmark().
+    try:
+        own_context = pc._build_context()
+    except Exception as e:
+        _log.warning(f"    [interconnect] own context build failed: {e}")
+        own_context = ""
     for entry in pending:
         try:
             payload_type = entry.get("payload_type", "")
@@ -189,6 +202,7 @@ def process_postcar_inbox() -> None:
                 # the asker's data and ours may share nothing at all. See
                 # _fleet_benchmark()'s docstring for why this exists.
                 fleet_context=_fleet_benchmark() if payload_type == "help_request" else "",
+                own_context=own_context,
             )
         except Exception as e:
             _log.warning(f"    [interconnect] review_inbox_draft failed: {e}")
