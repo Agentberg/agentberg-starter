@@ -465,6 +465,27 @@ def get_sector_performance(days: int = 3650) -> list[dict]:
     return result
 
 
+def get_sector_trade_sequence(days: int = 90) -> dict[str, list[dict]]:
+    """Chronological per-trade (pnl, win) sequence per sector, closed trades only.
+    get_sector_performance() only returns pre-aggregated stats -- the validate-gate
+    and drift check in llm.py's _performance_section need the raw ordered sequence
+    to hold out a trailing slice and run a change-point test on it."""
+    cutoff = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+    with _conn() as conn:
+        rows = conn.execute(
+            """SELECT sector, pnl, closed_at FROM trades
+               WHERE status='closed' AND session_date >= ? AND sector IS NOT NULL
+               ORDER BY closed_at ASC""",
+            (cutoff,),
+        ).fetchall()
+    by_sector: dict[str, list[dict]] = {}
+    for r in rows:
+        by_sector.setdefault(r["sector"], []).append(
+            {"pnl": r["pnl"] or 0.0, "win": (r["pnl"] or 0.0) > 0}
+        )
+    return by_sector
+
+
 def get_recent_trades(limit: int = 20) -> list[dict]:
     with _conn() as conn:
         rows = conn.execute(

@@ -1,7 +1,21 @@
 {
-  "version": "2.11.29",
-  "released": "2026-08-03",
+  "version": "2.11.30",
+  "released": "2026-08-04",
   "changelog": [
+    {
+      "version": "2.11.30",
+      "category": "B",
+      "date": "2026-08-04",
+      "files": [
+        "memory.py",
+        "llm.py",
+        "agent.py",
+        "config.py"
+      ],
+      "added": [
+        "Two circuit breakers on the agent's own self-tuning paths, replacing naive 'N losses in a row' reads with statistically-grounded gates -- hand-rolled, no new dependency. (1) llm.py's _performance_section sector 'proven'/'losing' labels now require a FinRL-style train/validate split (a pattern must replicate on a held-out trailing slice of the sector's own trades, not just cross a bar on the aggregate) AND a Page-Hinkley change-point test confirming a real shift in the win/loss sequence -- was a raw trade_count>=3 threshold. New memory.get_sector_trade_sequence() supplies the chronological per-trade data this needs; memory.get_sector_performance() is unchanged for its other callers. (2) agent.py's run_guidance_cycle() -- an APPLY decision from evaluate_guidance() used to write straight to guidance_overrides.json (a live parameter mutation, read back into config.py every startup) off the LLM's own validity/alignment/risk scoring alone, which is a judgment call, not a statistical test. APPLY now also requires the agent's own recent closed-trade sequence to clear a Page-Hinkley test before the change is allowed to commit; otherwise it's downgraded to ASK (a follow-up question back to the sender) instead of applying blind. New tunables in config.py: SECTOR_LABEL_MIN_TRADES, SECTOR_LABEL_VALIDATE_FRAC, PH_DELTA, PH_LAMBDA -- kit-owned so they ship uniformly on upgrade, not in risk_params.py. Root cause this closes: miniG-v3 self-loosened its RSI entry criteria during a 3-week 0% WR stretch that was never tested for statistical significance -- see agentberg root_cause_minig_options_logic_2026-07-21. Category B (alpha/scoring threshold logic) -- manual, deliberate per-agent adoption only, never auto-applied."
+      ]
+    },
     {
       "version": "2.11.29",
       "category": "A",

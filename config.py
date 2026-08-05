@@ -164,3 +164,22 @@ except FileNotFoundError:
     pass
 except Exception as _e:
     print(f"    [guidance] overrides load failed, using defaults ({_e})")
+
+
+# ── Self-adjustment validation (2026-08-04) ─────────────────────────────────────
+# Two circuit breakers on the agent's own self-tuning paths, both hand-rolled
+# (no new kit dependency) rather than a naive "N losses in a row" read:
+#   1. llm.py's _performance_section sector "proven"/"losing" labels -- gated on
+#      a held-out validation slice (FinRL-style train/validate split) instead of
+#      a raw trade_count>=3 threshold.
+#   2. agent.py's run_guidance_cycle() -- before an APPLY decision is allowed to
+#      actually mutate a live parameter via _apply_guidance_changes(), the
+#      agent's own recent track record must show a real Page-Hinkley change-
+#      point, not just normal variance the LLM narrated as a trend.
+# Root cause this exists to close: miniG-v3 self-loosened its RSI entry
+# criteria during a 3-week 0% WR stretch that was never statistically tested
+# for significance -- see agentberg root_cause_minig_options_logic_2026-07-21.
+SECTOR_LABEL_MIN_TRADES:    int   = 6     # below this, no sector label at all (was 3)
+SECTOR_LABEL_VALIDATE_FRAC: float = 0.3   # trailing fraction of a sector's trades held out as validation
+PH_DELTA:  float = 0.05   # Page-Hinkley drift tolerance -- ignore shifts smaller than this
+PH_LAMBDA: float = 3.0    # Page-Hinkley alarm threshold -- cumulative deviation required to confirm a real shift

@@ -94,6 +94,61 @@ def _regime_rules_section(regime: str) -> str:
     )
 
 
+def _page_hinkley_shift(values: list[float], delta: float = 0.05, lam: float = 3.0,
+                         direction: str = "down") -> bool:
+    """Page-Hinkley change-point test on a running mean. direction="down" flags a
+    genuine drop (e.g. win rate degrading); direction="up" flags a genuine rise.
+    Hand-rolled (no new kit dependency; same idea as River's PageHinkley detector)
+    so a short streak within normal variance doesn't read as a real trend."""
+    if len(values) < 4:
+        return False
+    sign = -1.0 if direction == "down" else 1.0
+    mean_t = values[0]
+    u = 0.0
+    u_min = 0.0
+    for i, v in enumerate(values[1:], start=2):
+        mean_t += (v - mean_t) / i
+        u += sign * (v - mean_t) - delta
+        u_min = min(u_min, u)
+        if u - u_min > lam:
+            return True
+    return False
+
+
+def _classify_sectors(sector_sequences: dict[str, list[dict]]) -> tuple[list[dict], list[dict]]:
+    """FinRL-style train/validate split for sector "proven"/"losing" labels, instead
+    of a raw trade_count>=3 threshold on the aggregate. A sector only qualifies if:
+      1. it clears a real minimum sample size (cfg.SECTOR_LABEL_MIN_TRADES),
+      2. the win-rate bar holds on BOTH an in-sample window AND a held-out trailing
+         validation slice (cfg.SECTOR_LABEL_VALIDATE_FRAC) — a pattern that only
+         shows up in-sample and doesn't replicate out-of-sample is noise, not signal,
+      3. a Page-Hinkley test confirms the win/loss sequence actually shifted, rather
+         than the aggregate crossing a bar by chance.
+    Root cause this exists to close: root_cause_minig_options_logic_2026-07-21 —
+    an agent read a short losing stretch as a real trend and self-adjusted worse."""
+    winners, losers = [], []
+    for sector, trades in sector_sequences.items():
+        n = len(trades)
+        if n < cfg.SECTOR_LABEL_MIN_TRADES:
+            continue
+        validate_n = max(2, round(n * cfg.SECTOR_LABEL_VALIDATE_FRAC))
+        in_sample, validate = trades[:-validate_n], trades[-validate_n:]
+        if not in_sample:
+            continue
+        wr_in = sum(t["win"] for t in in_sample) / len(in_sample)
+        wr_val = sum(t["win"] for t in validate) / len(validate)
+        win_seq = [1.0 if t["win"] else 0.0 for t in trades]
+        net_pnl = round(sum(t["pnl"] for t in trades), 2)
+
+        if wr_in >= 0.60 and wr_val >= 0.50 and _page_hinkley_shift(
+                win_seq, cfg.PH_DELTA, cfg.PH_LAMBDA, direction="up"):
+            winners.append({"sector": sector, "win_rate": wr_in, "trade_count": n, "net_pnl": net_pnl})
+        elif wr_in <= 0.40 and wr_val <= 0.50 and _page_hinkley_shift(
+                win_seq, cfg.PH_DELTA, cfg.PH_LAMBDA, direction="down"):
+            losers.append({"sector": sector, "win_rate": wr_in, "trade_count": n, "net_pnl": net_pnl})
+    return winners, losers
+
+
 def _performance_section(performance_context: dict | None) -> str:
     """Render the agent's own historical track record for the prompt. This is the
     reflection layer — the LLM sees how previous decisions actually performed before
@@ -109,9 +164,8 @@ def _performance_section(performance_context: dict | None) -> str:
             f"| Net P&L ${stats['net_pnl']:+,.0f}"
         )
 
-    sectors = performance_context.get("sectors") or []
-    winners = [s for s in sectors if s["trade_count"] >= 3 and s["win_rate"] >= 0.60]
-    losers  = [s for s in sectors if s["trade_count"] >= 3 and s["win_rate"] <= 0.40]
+    sector_sequences = performance_context.get("sector_sequences") or {}
+    winners, losers = _classify_sectors(sector_sequences)
     if winners:
         lines.append("- Your proven sectors (favour these): " +
                      ", ".join(f"{s['sector']} {s['win_rate']:.0%} WR" for s in winners))

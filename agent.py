@@ -1100,9 +1100,9 @@ def run_session():
     #   buffer:    50% excess candidates — inherit a dropped primary's slot at execution
     # Each candidate gets a conviction score (0.0-1.0) used for proportional allocation.
     performance_context = {
-        "stats":   memory.get_summary_stats(days=90),
-        "sectors": memory.get_sector_performance(days=90),
-        "recent":  memory.get_recent_trades(limit=10),
+        "stats":            memory.get_summary_stats(days=90),
+        "sector_sequences": memory.get_sector_trade_sequence(days=90),
+        "recent":           memory.get_recent_trades(limit=10),
     }
     l2_result = rank_candidates_v2(
         candidates, stance["max_concurrent"], regime, risk_level, health_label,
@@ -1896,6 +1896,37 @@ def run_guidance_cycle(inbox_messages: list[dict]) -> None:
         decision = verdict.get("decision", "DEFER")
         reasoning = verdict.get("reasoning", "")
         changes = verdict.get("suggested_changes") or []
+
+        # Circuit breaker: an APPLY decision is about to mutate a live parameter via
+        # _apply_guidance_changes() (guidance_overrides.json, read back into config.py
+        # every startup). evaluate_guidance()'s validity/alignment/risk scores are an
+        # LLM judgment call, not a statistical test -- they can rate a suggestion
+        # highly plausible off a short losing/winning stretch that's actually normal
+        # variance. Require the agent's OWN recent trade sequence to show a real
+        # Page-Hinkley shift before trusting that premise; otherwise downgrade to ASK
+        # instead of applying blind. Root cause this closes: miniG-v3 self-loosened
+        # its RSI entry criteria off an unvalidated 3-week losing stretch — see
+        # agentberg root_cause_minig_options_logic_2026-07-21.
+        if decision == "APPLY" and changes:
+            _recent = list(reversed(memory.get_recent_trades(limit=30)))
+            _seq = [1.0 if (t.get("pnl") or 0) > 0 else 0.0
+                    for t in _recent if t.get("status") == "closed" and t.get("pnl") is not None]
+            _premise_confirmed = len(_seq) >= cfg.SECTOR_LABEL_MIN_TRADES and (
+                _llm._page_hinkley_shift(_seq, cfg.PH_DELTA, cfg.PH_LAMBDA, direction="down")
+                or _llm._page_hinkley_shift(_seq, cfg.PH_DELTA, cfg.PH_LAMBDA, direction="up")
+            )
+            if not _premise_confirmed:
+                print(f"    [guidance] APPLY downgraded to ASK — own track record "
+                      f"({len(_seq)} closed trades) shows normal variance, not a "
+                      f"statistically confirmed shift (Page-Hinkley). Not applying blind.")
+                decision = "ASK"
+                verdict["decision"] = "ASK"
+                if not verdict.get("follow_up_question"):
+                    verdict["follow_up_question"] = (
+                        "Before applying — my own recent results don't show a "
+                        "statistically confirmed shift yet, just normal variance. "
+                        "What's the specific evidence this is a real pattern, not noise?"
+                    )
 
         v = verdict.get("validity_score", "?")
         c = verdict.get("credibility_score", "?")
