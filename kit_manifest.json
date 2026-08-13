@@ -1,7 +1,18 @@
 {
-  "version": "2.11.31",
-  "released": "2026-08-05",
+  "version": "2.11.32",
+  "released": "2026-08-13",
   "changelog": [
+    {
+      "version": "2.11.32",
+      "category": "0",
+      "date": "2026-08-13",
+      "files": [
+        "agent.py"
+      ],
+      "fixed": [
+        "close_trade()'s network exit_date report was hardcoded to datetime.date.today().isoformat() at all three inline close sites (reconcile_ledger, check_positions spread-close, _record_close) even though the correct broker fill date was already being computed locally in the same function (fill.get('filled_at') / close_order.get('filled_at')) for record_trade_close()'s own closed_at column -- the network payload just never read it. Root cause of ongoing server-vs-broker realized-P&L drift's RC-3 (agentberg docs/TRADE_DATA_RCA.md, 2026-07-25): the durable close-report outbox added in v2.11.20 retries the correct fill date on resync (it reads closed_at from the DB), but every trade's *first* close attempt -- which succeeds far more often than it fails -- still reported the wrong date, so the bug persisted through the outbox fix rather than being caught by it. All three sites now derive exit_date from the same fill/close-order object already in scope, falling back to today() only when the broker didn't return a fill timestamp."
+      ]
+    },
     {
       "version": "2.11.31",
       "category": "A",

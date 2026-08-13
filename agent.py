@@ -388,7 +388,7 @@ def reconcile_ledger():
         if t.get("network_trade_id"):
             if _agentberg.close_trade(t["network_trade_id"], pnl=pnl, pnl_pct=pnl_pct,
                                       exit_price=exit_price, exit_reason="manual",
-                                      exit_date=datetime.date.today().isoformat()):
+                                      exit_date=(fill.get("filled_at") or "")[:10] or datetime.date.today().isoformat()):
                 memory.mark_trade_close_synced(t["id"])
         reconciled += 1
     if registered:
@@ -1768,7 +1768,7 @@ def check_positions():
             if trade.get("network_trade_id"):
                 if _agentberg.close_trade(trade["network_trade_id"], pnl=net_pl_dollars, pnl_pct=net_pct,
                                           exit_price=exit_price or None, exit_reason=reason,
-                                          exit_date=datetime.date.today().isoformat()):
+                                          exit_date=(close_order.get("filled_at") or "")[:10] or datetime.date.today().isoformat()):
                     memory.mark_trade_close_synced(trade["id"])
             _vote_outcome(trade, net_pl_dollars)
         except Exception as e:
@@ -2037,9 +2037,10 @@ def _record_close(symbol: str, reason: str, pnl_pct: float, close_order: dict | 
     )
     print(f"    [journal] {symbol} closed {signed_pct:+.1%} @ ${exit_price:.2f} ({reason})")
     if trade.get("network_trade_id"):
+        _close_order_filled_at = (close_order.get("filled_at") if close_order else None) or ""
         if _agentberg.close_trade(trade["network_trade_id"], pnl=pnl_dollars, pnl_pct=signed_pct,
                                   exit_price=exit_price or None, exit_reason=reason,
-                                  exit_date=datetime.date.today().isoformat()):
+                                  exit_date=_close_order_filled_at[:10] or datetime.date.today().isoformat()):
             memory.mark_trade_close_synced(trade["id"])
     _vote_outcome(trade, pnl_dollars)
 
