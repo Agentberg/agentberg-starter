@@ -1,7 +1,21 @@
 {
-  "version": "2.11.32",
+  "version": "2.11.33",
   "released": "2026-08-13",
   "changelog": [
+    {
+      "version": "2.11.33",
+      "category": "0",
+      "date": "2026-08-13",
+      "files": [
+        "agent.py",
+        "alpaca.py",
+        "memory.py",
+        "trailing.py"
+      ],
+      "fixed": [
+        "Trailing stop was reactive-only: check_positions() compared live price against a Python-tracked high_water_mark every 5 minutes and, if triggered, called close_position() at that moment -- no protective order for it ever sat on Alpaca's own book. Only the entry bracket's static stop_loss/take_profit legs were real resting orders; the trailing logic itself provided zero protection during any window the local process wasn't running. Confirmed live 2026-08-13: a TSLA position ran from +9.75% to a near-loss over 4 days (peak 07-06, didn't close until 07-10) because nothing was watching the pullback in between. New trailing.py (compute_atr()/trailing_stop_price(), ATR-scaled with a plain-% fallback, ported from jeeboo's strategy/sizing.py which was itself ported from minig's execution.py -- generalized here to handle short positions too, since jeeboo is long-only and its version never needed that branch) now PATCHes the entry bracket's actual stop-loss order price via a new alpaca.py::replace_order() as the high-water-mark improves, so the stop lives on the broker's book continuously and survives a process outage between polls. Falls back to the original reactive compare-and-close whenever there's no known stop order to manage (pre-upgrade trades bootstrap their current stop from the live order on Alpaca on first cycle) or a replace attempt itself fails, so no trade is ever worse protected than before this change. New memory.py columns entry_atr/current_stop_price (high_water_mark and stop_order_id already existed)."
+      ]
+    },
     {
       "version": "2.11.32",
       "category": "0",

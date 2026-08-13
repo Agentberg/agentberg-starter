@@ -130,6 +130,12 @@ class AlpacaClient:
             r.raise_for_status()
             return r.json()
 
+    def _patch(self, path: str, payload: dict) -> dict:
+        with httpx.Client(timeout=10) as c:
+            r = c.patch(f"{self._base}{path}", headers=self._headers, json=payload)
+            r.raise_for_status()
+            return r.json()
+
     # ── Account ────────────────────────────────────────────────────────────────
 
     def get_account(self) -> dict:
@@ -215,6 +221,15 @@ class AlpacaClient:
             payload["stop_loss"]   = {"stop_price": str(round(stop_loss_price, 2))}
             payload["take_profit"] = {"limit_price": str(round(take_profit_price, 2))}
         return self._post("/v2/orders", payload)
+
+    def replace_order(self, order_id: str, stop_price: float) -> dict:
+        """PATCH /v2/orders/{id} to move a resting stop order's price -- used to
+        actually trail a stop on the broker's own book, not just compare-and-close
+        in Python (see trailing.py::trailing_stop_price()). Alpaca returns a NEW
+        order id on replace and marks the old one "replaced" -- it does NOT mutate
+        the original id in place. Callers MUST persist the returned id or the next
+        trail attempt targets a dead order and silently fails forever."""
+        return self._patch(f"/v2/orders/{order_id}", {"stop_price": str(round(stop_price, 2))})
 
     def get_recent_closed_orders(self, limit: int = 50, days: int = 7) -> list:
         after = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()

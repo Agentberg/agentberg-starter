@@ -30,6 +30,7 @@ import memory
 import migrations
 import risk
 import structures
+import trailing
 from agentberg import AgentbergClient
 from alpaca import AlpacaClient
 import llm as _llm
@@ -1365,6 +1366,19 @@ def run_session():
                     entry_commission=float(order.get("commission") or 0),
                     finding_ids=trade_finding_ids,
                 )
+                # Seed real broker-side trailing-stop state (trailing.py) -- entry_atr
+                # scales how far the stop trails, high_water_mark starts at entry_price,
+                # stop_order_id/stop_price let _trail_stops() know what to PATCH later.
+                # Best-effort: a failure here just means this trade falls back to the
+                # fixed bracket stop (never no protection at all), so it never blocks
+                # the order that already filled.
+                try:
+                    _entry_atr = trailing.compute_atr(_alpaca.get_bars(ticker))
+                    memory.init_trailing_state(trade_id, _entry_atr, entry_price,
+                                               stop_order_id, stop_price)
+                except Exception as e:
+                    print(f"    [warn] trailing-state seed failed for {ticker} ({e}) — "
+                          f"falls back to the fixed bracket stop only")
                 print(f"    ORDER {ticker}: {side} ×{qty} @ ~${live_price:.2f}  "
                       f"stop=${stop_price or 'none'}  tp=${take_profit_price or 'none'}  "
                       f"alloc=${size_usd:,.0f}  conviction={c.get('conviction', 0):.0%}")
@@ -1704,6 +1718,81 @@ def _close_with_retry(key: str, close_fn, retries: int = 2, delay: float = 2.0):
     raise last_exc
 
 
+def _trail_stop(trade: dict, pos: dict, current_price: float, is_equity: bool) -> bool:
+    """Manage one open position's trailing stop for this monitor cycle.
+    Returns True if the position was closed here (caller should `continue`).
+
+    Prefers PATCHing the REAL resting stop order on Alpaca (trailing.py) so the
+    broker enforces the trail even if this process is down between polls --
+    the old behavior only compared price vs. HWM in Python and reactively
+    called close_position() once triggered, meaning zero protection existed on
+    the broker's own book for the trailing logic during any outage window
+    (2026-08-13, confirmed live against real trades: a TSLA position rode from
+    +9.75% peak down to a near-loss over 4 days before catching up).
+
+    Falls back to the original reactive compare-then-close whenever there's no
+    stop_order_id to manage, or the PATCH attempt itself raises -- so a trade
+    is never worse protected than before this function existed, only better."""
+    symbol = pos["symbol"]
+    is_short = "short" in (trade.get("trade_type") or "")
+    entry_price = float(trade.get("entry_price") or 0)
+    hwm = float(trade.get("high_water_mark") or entry_price or current_price)
+    favorable_move = current_price < hwm if is_short else current_price > hwm
+    if favorable_move:
+        hwm = current_price
+
+    trigger_pct  = cfg.TRAILING_STOP_TRIGGER_PCT if is_equity else cfg.OPTION_TRAILING_STOP_TRIGGER_PCT
+    distance_pct = cfg.TRAILING_STOP_DISTANCE_PCT if is_equity else cfg.OPTION_TRAILING_STOP_DISTANCE_PCT
+    stop_order_id = trade.get("stop_order_id")
+
+    if stop_order_id:
+        try:
+            entry_atr = trade.get("entry_atr")
+            new_stop = trailing.trailing_stop_price(
+                entry_price, hwm, entry_atr, is_short=is_short,
+                fallback_activate_pct=trigger_pct, fallback_trail_pct=distance_pct,
+            )
+            current_stop = trade.get("current_stop_price")
+            if current_stop is None:
+                # Pre-upgrade trade, or first cycle since -- bootstrap from the
+                # order's own live price on Alpaca rather than guessing one.
+                live_order = _alpaca.get_order(stop_order_id)
+                current_stop = (float(live_order["stop_price"])
+                                 if live_order and live_order.get("stop_price") else None)
+            tightened = new_stop is not None and (current_stop is None or
+                        (new_stop < current_stop if is_short else new_stop > current_stop))
+            if tightened:
+                replaced = _alpaca.replace_order(stop_order_id, stop_price=new_stop)
+                new_id = replaced.get("id") if isinstance(replaced, dict) else stop_order_id
+                memory.update_trailing_state(trade["id"], hwm, new_id, new_stop)
+                print(f"[monitor] TRAIL {symbol}: stop -> ${new_stop:.2f} (HWM ${hwm:.2f})")
+            elif favorable_move:
+                memory.update_trailing_state(trade["id"], hwm, stop_order_id, current_stop or 0.0)
+            return False
+        except Exception as e:
+            print(f"[monitor] Trail replace failed {symbol} ({e}) — reactive check this cycle")
+            # fall through to the reactive path below
+
+    # ── Reactive fallback (no stop_order_id known, or the PATCH just failed) ───
+    if favorable_move:
+        memory.update_high_water_mark(trade["id"], hwm)
+    unrealised_pnl_pct = float(pos.get("unrealized_plpc", 0))
+    if unrealised_pnl_pct >= trigger_pct:
+        trail_stop = hwm * (1 + distance_pct) if is_short else hwm * (1 - distance_pct)
+        triggered = current_price >= trail_stop if is_short else current_price <= trail_stop
+        if triggered:
+            print(f"[monitor] TRAILING STOP (reactive) {symbol}: "
+                  f"${current_price:.2f} {'above' if is_short else 'below'} trail ${trail_stop:.2f} "
+                  f"(HWM ${hwm:.2f}, up {unrealised_pnl_pct:.1%})")
+            try:
+                close_order = _close_with_retry(symbol, lambda: _alpaca.close_position(symbol))
+                _record_close(symbol, "trailing_stop", unrealised_pnl_pct, close_order=close_order)
+            except Exception as e:
+                print(f"[monitor] Trailing stop close failed {symbol}: {e}")
+            return True
+    return False
+
+
 def check_positions():
     """
     Stop-loss and take-profit monitor. Called every 5 minutes by scheduler.
@@ -1809,39 +1898,17 @@ def check_positions():
                 continue
 
         # ── Trailing stop (all instruments) ────────────────────────────────────
-        # Tracks the best price seen since entry — highest for longs, lowest for
-        # shorts (a short's favorable direction is down). Once the position is up
-        # TRIGGER_PCT, the stop trails DISTANCE_PCT back from that extreme —
-        # locking in gains on reversals without capping upside. Equities use
-        # tight distances (1%); options use wider ones (20%) to survive normal
-        # premium volatility.
+        # See _trail_stop()'s docstring: PATCHes the real resting stop order on
+        # Alpaca as the high-water-mark improves, so the broker enforces the
+        # trail even between polls, with a reactive fallback for anything that
+        # can't be managed that way this cycle.
         if cfg.TRAILING_STOP_ENABLED:
-            is_equity = asset_class == "us_equity"
-            trigger_pct  = cfg.TRAILING_STOP_TRIGGER_PCT if is_equity else cfg.OPTION_TRAILING_STOP_TRIGGER_PCT
-            distance_pct = cfg.TRAILING_STOP_DISTANCE_PCT if is_equity else cfg.OPTION_TRAILING_STOP_DISTANCE_PCT
             current_price = float(pos.get("current_price", 0))
             trade = next((t for t in open_trades
                           if t.get("long_symbol") == symbol or t["symbol"] == symbol), None)
             if trade and current_price > 0:
-                is_short = "short" in (trade.get("trade_type") or "")
-                hwm = float(trade.get("high_water_mark") or trade.get("entry_price") or current_price)
-                favorable_move = current_price < hwm if is_short else current_price > hwm
-                if favorable_move:
-                    hwm = current_price
-                    memory.update_high_water_mark(trade["id"], hwm)
-                if unrealised_pnl_pct >= trigger_pct:
-                    trail_stop = hwm * (1 + distance_pct) if is_short else hwm * (1 - distance_pct)
-                    triggered = current_price >= trail_stop if is_short else current_price <= trail_stop
-                    if triggered:
-                        print(f"[monitor] TRAILING STOP {symbol}: "
-                              f"${current_price:.2f} {'above' if is_short else 'below'} trail ${trail_stop:.2f} "
-                              f"(HWM ${hwm:.2f}, up {unrealised_pnl_pct:.1%})")
-                        try:
-                            close_order = _close_with_retry(symbol, lambda: _alpaca.close_position(symbol))
-                            _record_close(symbol, "trailing_stop", unrealised_pnl_pct, close_order=close_order)
-                        except Exception as e:
-                            print(f"[monitor] Trailing stop close failed {symbol}: {e}")
-                        continue
+                if _trail_stop(trade, pos, current_price, asset_class == "us_equity"):
+                    continue
 
         stop_threshold   = -cfg.EQUITY_STOP_LOSS_PCT if asset_class == "us_equity" else -cfg.OPTION_STOP_LOSS_PCT
         profit_threshold = cfg.EQUITY_TAKE_PROFIT_PCT if asset_class == "us_equity" else cfg.TAKE_PROFIT_PCT

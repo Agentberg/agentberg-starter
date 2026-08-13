@@ -135,7 +135,16 @@ def init_db():
                          # close_trade() used to be fire-and-forget with no retry, so a single
                          # transient failure left the trade "open" on the server forever even
                          # though it was closed locally and on the broker.
-                         ("network_close_synced_at", "TEXT")]:
+                         ("network_close_synced_at", "TEXT"),
+                         # ATR at entry (see trailing.py) and the live price of the resting
+                         # stop_order_id above — together with high_water_mark these let
+                         # _trail_stops() PATCH the real broker stop as price improves,
+                         # instead of only comparing price vs. HWM in Python and reactively
+                         # calling close_position() once triggered (the prior behavior: zero
+                         # protection on the broker's own book between polls, so a process
+                         # outage meant the trailing stop simply didn't exist for that gap).
+                         ("entry_atr", "REAL"),
+                         ("current_stop_price", "REAL")]:
             try:
                 conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
             except sqlite3.OperationalError:
@@ -561,6 +570,26 @@ def update_high_water_mark(trade_id: int, price: float) -> None:
     """Record the highest price seen since entry. Called by the position monitor each cycle."""
     with _conn() as conn:
         conn.execute("UPDATE trades SET high_water_mark=? WHERE id=?", (price, trade_id))
+
+
+def init_trailing_state(trade_id: int, entry_atr: float | None, entry_price: float,
+                         stop_order_id: str | None, stop_price: float | None) -> None:
+    """Called once, right after the entry bracket's stop leg attaches — seeds
+    high_water_mark at entry_price and records the live stop order's id so
+    _trail_stops() has a real broker order to PATCH later (see trailing.py)."""
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE trades SET entry_atr=?, high_water_mark=?, stop_order_id=?, current_stop_price=? WHERE id=?",
+            (entry_atr, entry_price, stop_order_id, stop_price, trade_id),
+        )
+
+
+def update_trailing_state(trade_id: int, hwm: float, stop_order_id: str, stop_price: float) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE trades SET high_water_mark=?, stop_order_id=?, current_stop_price=? WHERE id=?",
+            (hwm, stop_order_id, stop_price, trade_id),
+        )
 
 
 def get_trades_opened_since(days: int = 30) -> list[dict]:
