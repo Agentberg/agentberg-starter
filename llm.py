@@ -659,6 +659,18 @@ def _build_trade_decision_prompt(candidate: dict, allocated_usd: float, regime: 
             f"WR {'n/a' if _wr is None else format(_wr, '.0%')} | "
             f"concurrent agents today={ni.get('concurrent_agents_today') if ni.get('concurrent_agents_today') is not None else '?'}"
         )
+    fund_note = ""
+    fund = candidate.get("fundamentals") or {}
+    if fund:
+        _rev = fund.get("quarterly_revenue_growth_yoy")
+        _eps = fund.get("quarterly_earnings_growth_yoy")
+        _margin = fund.get("profit_margin")
+        fund_note = (
+            f"\nFundamentals (EODHD, quarterly YoY): revenue growth="
+            f"{'n/a' if _rev is None else format(_rev, '+.1%')} | "
+            f"earnings growth={'n/a' if _eps is None else format(_eps, '+.1%')} | "
+            f"profit margin={'n/a' if _margin is None else format(_margin, '.1%')}"
+        )
     stance_note = ""
     if l1_stance:
         stance_note = f"\nSession stance: {l1_stance.upper()} | Focus: {focus or 'momentum'} (execute under this — do not re-derive stance)"
@@ -675,7 +687,7 @@ Candidate:
   conviction: {candidate.get('conviction', 0):.0%} (from L2 ranking)
   L2 reason:  {candidate.get('reason', 'n/a')}
   regime:     {regime or 'unknown'}
-{intraday_note}{net_note}
+{intraday_note}{net_note}{fund_note}
 {character_brief or ''}
 
 Decide:

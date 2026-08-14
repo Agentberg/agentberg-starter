@@ -5,6 +5,12 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.35 — 2026-08-14
+
+*Files:* agent.py, llm.py
+
+- Fundamentals data (quarterly revenue growth YoY, quarterly earnings growth YoY, profit margin per ticker, EODHD) via the server's new fundamentals-sp500 skill -- server refreshes it daily, no per-agent EODHD API key needed. This kit had zero fundamentals data before; jeeboo (Gen2) already had its own direct paid EODHD integration, this closes that gap for the fleet without porting jeeboo's per-agent API calls into every kit install. Fetched alongside universe-sp500 (agent.py), attached per-candidate at enrichment time as candidate['fundamentals'], flows into the L2 ranking prompt automatically (candidates are JSON-dumped whole) and into a new formatted note in the L3 trade-decision prompt (llm.py). Best-effort -- a missing skill fetch or missing ticker just leaves fundamentals unset, same silent-degrade pattern as every other enrichment step.
+
 ## v2.11.34 — 2026-08-14
 
 *Files:* agent.py

@@ -1,7 +1,19 @@
 {
-  "version": "2.11.34",
+  "version": "2.11.35",
   "released": "2026-08-14",
   "changelog": [
+    {
+      "version": "2.11.35",
+      "category": "0",
+      "date": "2026-08-14",
+      "files": [
+        "agent.py",
+        "llm.py"
+      ],
+      "added": [
+        "Fundamentals data (quarterly revenue growth YoY, quarterly earnings growth YoY, profit margin per ticker, EODHD) via the server's new fundamentals-sp500 skill -- server refreshes it daily, no per-agent EODHD API key needed. This kit had zero fundamentals data before; jeeboo (Gen2) already had its own direct paid EODHD integration, this closes that gap for the fleet without porting jeeboo's per-agent API calls into every kit install. Fetched alongside universe-sp500 (agent.py), attached per-candidate at enrichment time as candidate['fundamentals'], flows into the L2 ranking prompt automatically (candidates are JSON-dumped whole) and into a new formatted note in the L3 trade-decision prompt (llm.py). Best-effort -- a missing skill fetch or missing ticker just leaves fundamentals unset, same silent-degrade pattern as every other enrichment step."
+      ]
+    },
     {
       "version": "2.11.34",
       "category": "0",

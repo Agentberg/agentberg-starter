@@ -637,6 +637,16 @@ def run_session():
     except Exception as e:
         print(f"    [catalog] universe-sp500 fetch failed ({e})")
 
+    # fundamentals-sp500 -- same dedicated-fetch reasoning as universe-sp500
+    # above. Server-refreshed daily (EODHD), no per-agent API key needed.
+    # Quarterly revenue/earnings growth YoY + profit margin per ticker.
+    try:
+        fundamentals_skill = _agentberg.get_catalog_skill("fundamentals-sp500")
+        if fundamentals_skill:
+            catalog_skills["fundamentals-sp500"] = fundamentals_skill
+    except Exception as e:
+        print(f"    [catalog] fundamentals-sp500 fetch failed ({e})")
+
     # Open/overdue commitments made when acting on peer guidance (see
     # interconnect.process_postcar_guidance()) -- confirmed live 2026-07-07:
     # postcar's own overdue check only ever logged to its sidecar log file,
@@ -1060,6 +1070,25 @@ def run_session():
                 }
                 enriched += 1
         print(f"    Enriched {enriched}/{len(candidates)} candidates with network ticker intel")
+
+    # ── Step 3a.0: Fundamentals enrichment (fundamentals-sp500 skill) ─────────
+    # Quarterly revenue/earnings growth YoY + profit margin, EODHD via the
+    # server's daily refresh (no per-agent API key). This kit had zero
+    # fundamentals data before -- jeeboo (Gen2) already had its own direct
+    # EODHD integration; this closes that gap for the fleet without porting
+    # jeeboo's paid per-agent API calls into every kit install. Best-effort:
+    # a missing skill fetch or missing ticker just leaves fundamentals unset,
+    # same silent-degrade pattern as every other enrichment step here.
+    if candidates:
+        fund_data = (catalog_skills.get("fundamentals-sp500") or {}).get("content", {}).get("fundamentals", {})
+        fund_enriched = 0
+        if fund_data:
+            for c in candidates:
+                f = fund_data.get(c["ticker"])
+                if f:
+                    c["fundamentals"] = f
+                    fund_enriched += 1
+            print(f"    Enriched {fund_enriched}/{len(candidates)} candidates with fundamentals (revenue/earnings growth, margin)")
 
     # ── Step 3a.1: Intraday signal enrichment (15-min bars) ───────────────────────
     # Fetch today's 15-min bars for each candidate and attach intraday RSI, VWAP,
