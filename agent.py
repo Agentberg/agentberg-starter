@@ -1002,11 +1002,14 @@ def run_session():
         print(f"    Injected {_injected_market} candidate(s) from pre-market/social heat signals")
 
     # ── Step 3 (cont): Network universe injection (S&P 500) ──────────────────
-    # Optional depth beyond your own WATCHLIST, sourced from the catalog's
+    # Depth beyond your own WATCHLIST, sourced from the catalog's
     # universe-sp500 skill (see knowledge.py::extract_universe_tickers()).
-    # Capped and clearly source-tagged -- this only adds scan candidates, it
+    # Uncapped as of kit 2.11.34 -- the server-side skill already carries the
+    # full S&P 500, and gpower's own sessions were hitting the old 100-ticker
+    # cap every single run (logs/autostart.log, 6/6 recent sessions), so the
+    # cap was throttling real available data, not protecting against a
+    # missing feed. Source-tagged -- this only adds scan candidates, it
     # never touches risk_params.py or your own sector/sizing rules.
-    _MAX_NETWORK_UNIVERSE = 100
     network_universe = knowledge.extract_universe_tickers(catalog_skills)
     if network_universe:
         own_tickers = candidate_tickers | {t for v in cfg.WATCHLIST.values() for t in v}
@@ -1015,17 +1018,13 @@ def run_session():
             if sector in blocked_sectors:
                 continue
             for ticker in tickers:
-                if universe_added >= _MAX_NETWORK_UNIVERSE:
-                    break
                 if ticker in own_tickers:
                     continue
                 own_tickers.add(ticker)
                 _try_inject(ticker, sector, "network_universe")
                 universe_added += 1
-            if universe_added >= _MAX_NETWORK_UNIVERSE:
-                break
         if universe_added:
-            print(f"    Scanned {universe_added} additional candidate(s) from network S&P 500 universe (capped at {_MAX_NETWORK_UNIVERSE})")
+            print(f"    Scanned {universe_added} additional candidate(s) from network S&P 500 universe (uncapped)")
 
     print(f"    {len(candidates)} candidate(s) before enrichment")
     _funnel_momentum = len(candidates)

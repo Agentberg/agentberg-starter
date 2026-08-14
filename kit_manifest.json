@@ -1,7 +1,18 @@
 {
-  "version": "2.11.33",
-  "released": "2026-08-13",
+  "version": "2.11.34",
+  "released": "2026-08-14",
   "changelog": [
+    {
+      "version": "2.11.34",
+      "category": "0",
+      "date": "2026-08-14",
+      "files": [
+        "agent.py"
+      ],
+      "fixed": [
+        "Network S&P 500 universe injection was hard-capped at 100 additional tickers/session (_MAX_NETWORK_UNIVERSE) on top of the ~49-ticker WATCHLIST. The server-side universe-sp500 catalog skill already carries the full S&P 500 and gpower's own sessions were hitting that cap every single run (logs/autostart.log: 'Scanned 100 additional candidate(s)... capped at 100', 6/6 recent sessions) -- the cap was throttling real available data, not protecting against a missing feed. Removed the cap; the kit now scans every ticker the network universe skill returns."
+      ]
+    },
     {
       "version": "2.11.33",
       "category": "0",
