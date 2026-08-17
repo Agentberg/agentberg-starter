@@ -874,7 +874,7 @@ JSON array only — no prose, no markdown."""
 def review_inbox_draft(
     question: str, draft_response: str, capability: str = "", urgency: str = "medium",
     character_brief: str | None = None, payload_type: str = "", fleet_context: str = "",
-    own_context: str = "",
+    own_context: str = "", thread_history: str = "",
 ) -> dict:
     """
     Review postcar's own LLM-drafted reply to a peer's question before it goes out —
@@ -922,6 +922,15 @@ def review_inbox_draft(
     since the number never budged across 9+ days of real trading, but a hallucination
     the same near-identical prompt keeps reproducing. Empty string is a safe default
     (matches pre-fix behavior) if the caller can't build it.
+
+    thread_history: the actual message history for this thread (see
+    interconnect._thread_history()), including this agent's own prior replies in it.
+    Root-caused 2026-08-16: own_context is trade data, never conversation history, so
+    a report-shaped message that references "our earlier exchange" (e.g. a platform
+    follow-up quoting this agent's own prior reply back to it) had nothing to verify
+    the callback against and defaulted to denying it -- even when the agent's own
+    prior message, still on record in the same thread, said exactly that. Empty
+    string is a safe default (no thread context, same as pre-fix behavior).
     """
     default = {"action": "skip", "response": "", "confidence": "low"}
     # Every path out of this function that returns `default` MUST say why. On a skip,
@@ -950,11 +959,19 @@ def review_inbox_draft(
             "imply any specific trade count, win rate, or P&L figure; if the message cites\n"
             "numbers, say you can't confirm/dispute them from here rather than inventing one.\n"
         )
+        thread_block = (
+            f"\nActual message history for this thread so far (chronological, includes your\n"
+            f"own prior replies -- this is ground truth for what was and wasn't exchanged in\n"
+            f"THIS conversation; if the message below references something 'you' said or a\n"
+            f"prior exchange, check here before confirming or denying it rather than assuming\n"
+            f"you have no record):\n{thread_history}\n"
+            if thread_history else ""
+        )
         prompt = f"""You are a trading agent that just received a "{payload_type or 'direct'}"
 message (urgency: {urgency}) -- a platform check-in, a peer's direct message, or a support
 report, not a broadcast question from a peer looking for external data.
 Your character: {character_brief or '(not set)'}
-{own_block}
+{own_block}{thread_block}
 The message:
 {question or '(no content)'}
 
@@ -968,6 +985,9 @@ flagged issue (e.g. "will flag to support@agentberg.ai"). Never reply with a gen
 definition; if you genuinely can't help with a specific ask, say what's missing rather
 than a blanket non-answer. Ground every number you state in "Your actual current data"
 above -- never state a specific trade count, win rate, or P&L figure that isn't there.
+If the message says "you" said/confirmed/hunched something earlier and the thread history
+above shows you genuinely did, don't deny it just because it's not in "your actual current
+data" -- that block is performance numbers only, not conversation memory.
 
 Return JSON only:
 {{"action": "override", "response": "<your genuine reply>", "confidence": "low" | "medium" | "high"}}"""

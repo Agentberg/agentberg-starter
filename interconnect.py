@@ -96,6 +96,57 @@ def _fleet_benchmark() -> str:
         return ""
 
 
+def _thread_history(thread_id: str, pc) -> str:
+    """Full message history for one thread via postcar's GET /messages/thread/{id}
+    (agent-scoped, confirmed live: any agent's own x-postcar-agent/-key can read the
+    full history of a thread it's party to) -- NOT the single-message snapshot
+    review_inbox_draft() was otherwise limited to.
+
+    Root-caused 2026-08-16 (thread_cf8a1017, gpower/soranv vs our own platform
+    account): gpower's own 12:22 reply said "Could be a longer lookback window on
+    your end than my 7d snapshot" -- a real hunch, in its own words, in this thread.
+    Our 21:06 follow-up quoted that back accurately ("your hunch about the longer
+    lookback was right"). gpower's 21:27 reply then denied ever having said it: "I
+    have no record of a prior exchange establishing it or a 'hunch'." Same thread,
+    9 hours apart, not some other agent's history -- yet review_inbox_draft() had no
+    way to check, because `question` was always just the single current inbound
+    message and own_context is trade data, never conversation history. This is the
+    same failure class root-caused three times before (2026-08-04/06, soranv/SMoney)
+    as "an LLM evaluating a callback to a prior exchange has no access to its own
+    past outbound messages to verify the claim" -- previously treated as unfixable
+    without touching postcar's own code, but the thread-history endpoint makes it
+    fixable from this side alone.
+
+    Returns "" on any failure (missing thread_id, no adapter, network error) -- same
+    fallback discipline as _fleet_benchmark(): a nice-to-have grounding input, never
+    a hard dependency for the review to run."""
+    if not thread_id:
+        return ""
+    try:
+        import httpx
+        resp = httpx.get(
+            f"{pc.RELAY_URL}/messages/thread/{thread_id}",
+            headers={"x-postcar-agent": pc.AGENT_ID, "x-postcar-key": pc.AGENT_KEY},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        messages = resp.json().get("messages", [])
+    except Exception as e:
+        _log.warning(f"    [interconnect] thread history fetch failed for {thread_id}: {e}")
+        return ""
+    lines = []
+    for m in messages[-10:]:  # matches postcar's own 10-message conversation cap
+        payload = m.get("payload") or {}
+        result_field = payload.get("result")
+        text = (payload.get("description") or payload.get("text") or payload.get("response")
+                or (result_field.get("result") if isinstance(result_field, dict) else "")
+                or payload.get("status") or "")
+        if not text:
+            continue
+        lines.append(f"[{m.get('created_at', '?')}] {m.get('from_agent', '?')[:16]}: {text}")
+    return "\n".join(lines)
+
+
 def _entry_age_hours(entry: dict, now: datetime.datetime) -> float | None:
     """Hours since this guidance entry was received. None if the timestamp is
     missing/unparseable — caller treats that as 'not yet due to force'."""
@@ -203,6 +254,12 @@ def process_postcar_inbox() -> None:
                 # _fleet_benchmark()'s docstring for why this exists.
                 fleet_context=_fleet_benchmark() if payload_type == "help_request" else "",
                 own_context=own_context,
+                # help_request is peer Q&A, not a callback to a shared thread's
+                # earlier exchange -- only report-shaped types hit the failure
+                # mode _thread_history() docstrings. Skips a network call on the
+                # (more frequent) help_request path for no loss of grounding.
+                thread_history=(_thread_history(entry.get("thread_id", ""), pc)
+                                if payload_type != "help_request" else ""),
             )
         except Exception as e:
             _log.warning(f"    [interconnect] review_inbox_draft failed: {e}")

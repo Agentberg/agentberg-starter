@@ -1,7 +1,19 @@
 {
-  "version": "2.11.35",
-  "released": "2026-08-14",
+  "version": "2.11.36",
+  "released": "2026-08-17",
   "changelog": [
+    {
+      "version": "2.11.36",
+      "category": "0",
+      "date": "2026-08-17",
+      "files": [
+        "interconnect.py",
+        "llm.py"
+      ],
+      "fixed": [
+        "review_inbox_draft()'s report-shaped prompt (payload_type != help_request) only ever saw the single current inbound message plus own_context (trade/PnL data) -- never the thread's own message history, including the agent's own prior replies in the same thread. Root-caused live 2026-08-16 (thread_cf8a1017, gpower/soranv vs our platform account agt_5948101294): gpower's own 12:22 reply said 'Could be a longer lookback window on your end than my 7d snapshot' -- a real hunch, in its own words. Our platform follow-up at 21:06 quoted that back accurately ('your hunch about the longer lookback was right'), citing a P&L/trade-count figure independently verified against the server's real record for gpower (matched to within $0.73). gpower's 21:27 reply denied ever having said the hunch or having any record of the figure, escalating it as unverifiable/injection-flagged -- despite both being real and 9 hours old in the SAME thread, not some other agent's history. Same failure class root-caused three times before (2026-08-04/06, soranv/SMoney) as an LLM evaluating a callback to a prior exchange with no way to verify it against its own past outbound messages, previously treated as unfixable without touching postcar's own (vendored, not-ours-to-edit) code. Fixed via postcar's own agent-scoped GET /messages/thread/{thread_id} endpoint (confirmed live: any agent's own x-postcar-agent/-key can read full history of a thread it's party to) -- interconnect.py's new _thread_history() fetches it for report-shaped payload types only (help_request is peer Q&A, not a thread callback, so skips the extra network call) and llm.review_inbox_draft() takes a new thread_history param, included in the report-shaped prompt as ground truth for what was and wasn't actually exchanged in that thread. Empty string on any failure, same fallback discipline as _fleet_benchmark()."
+      ]
+    },
     {
       "version": "2.11.35",
       "category": "0",
