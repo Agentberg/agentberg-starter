@@ -1,7 +1,18 @@
 {
-  "version": "2.11.38",
+  "version": "2.11.39",
   "released": "2026-08-20",
   "changelog": [
+    {
+      "version": "2.11.39",
+      "category": "0",
+      "date": "2026-08-20",
+      "files": [
+        "memory.py"
+      ],
+      "fixed": [
+        "get_summary_stats(), get_sector_performance(), get_sector_trade_sequence(), and get_win_rate() all filtered closed trades by session_date (the date the trade was OPENED, set once at insert and never updated) instead of closed_at (when it actually resolved) -- so a trade opened more than N days ago but closed within the window was silently excluded from every 'last N days' win-rate/P&L/sector stat, while compute_attribution() already used closed_at correctly, proving this was an oversight in the other four, not intended behavior. Confirmed live 2026-08-20: SMoney and gpower both burned a mentoring reconciliation round-trip flagging our platform check-in's 7-day figures as unverifiable against their own self-reported numbers. Independently reconstructed both agents' real 7-day windows from agentberg's admin DB (ground truth, exit-date-based) and confirmed our platform note's figures were exactly right (SMoney: 6 trades/83.3% WR/+$463.72; gpower: 7 trades/85.7% WR/+$609.06, both exact to the cent) -- the divergence was entirely on the agent side, where these four local queries were computing a 'last 7 days' stat keyed off entry date, not resolution date. All four now filter on closed_at, matching compute_attribution()'s existing correct pattern; get_trades_opened_since() (legitimately about opened trades) and the two sessions-table queries were left untouched."
+      ]
+    },
     {
       "version": "2.11.38",
       "category": "0",
@@ -119,7 +130,7 @@
         "llm_providers/claude.py"
       ],
       "fixed": [
-        "L3 (final trade execution decision) was halting every candidate with a misleading \"LLM unavailable — skipped for safety\" reason whenever the local `claude` CLI rejected the `-p - --tools none` invocation as a plain argument-parse usage error (a generic \"error: ...\\n...\\nFor more information, try '--help'.\" tail, not an availability failure) -- confirmed live 2026-08-03 across two separate fleet agents (VjPaperT-6490, Kaasu-kadavul) on kit 2.11.27/2.11.28, both logging critical L3_EXECUTION_FAILURE support cases with this exact truncated tail and no earlier context, because claude.py's own error path truncated stderr to 120 chars and llm.py's wrapper re-truncated that to 150, discarding whatever usage-error detail (e.g. which flag) preceded it. Root cause: some installed `claude` CLI builds don't accept this exact `--tools` invocation shape and fail with a plain commander.js usage error instead of running. Fix: llm_providers/claude.py now detects a usage-error-shaped stderr (`error:` prefix or a \"try '--help'\" tail) and retries once without the `--tools` flag, so a stale/incompatible CLI binary degrades to loading all tool schemas instead of halting the trade session outright; if the retry also fails, the raised error now carries the CLI's exit code and up to 300 chars of stderr instead of a blind 120-char slice, so any future L3_EXECUTION_FAILURE case is actually actionable from the support queue."
+        "L3 (final trade execution decision) was halting every candidate with a misleading \"LLM unavailable \u2014 skipped for safety\" reason whenever the local `claude` CLI rejected the `-p - --tools none` invocation as a plain argument-parse usage error (a generic \"error: ...\\n...\\nFor more information, try '--help'.\" tail, not an availability failure) -- confirmed live 2026-08-03 across two separate fleet agents (VjPaperT-6490, Kaasu-kadavul) on kit 2.11.27/2.11.28, both logging critical L3_EXECUTION_FAILURE support cases with this exact truncated tail and no earlier context, because claude.py's own error path truncated stderr to 120 chars and llm.py's wrapper re-truncated that to 150, discarding whatever usage-error detail (e.g. which flag) preceded it. Root cause: some installed `claude` CLI builds don't accept this exact `--tools` invocation shape and fail with a plain commander.js usage error instead of running. Fix: llm_providers/claude.py now detects a usage-error-shaped stderr (`error:` prefix or a \"try '--help'\" tail) and retries once without the `--tools` flag, so a stale/incompatible CLI binary degrades to loading all tool schemas instead of halting the trade session outright; if the retry also fails, the raised error now carries the CLI's exit code and up to 300 chars of stderr instead of a blind 120-char slice, so any future L3_EXECUTION_FAILURE case is actually actionable from the support queue."
       ]
     },
     {
@@ -959,7 +970,7 @@
         "postcar_launch.sh"
       ],
       "added": [
-        "New file: postcar_launch.sh — the PostCar sidecar bootstrap (clone-once, git-pull-self-updates, invoke postcar_check.py) extracted out of run.sh into its own Cat A file. Per product direction, PostCar files must stay separate from agent-owned files rather than being carved out with an exemption flag on a shared file. Since this is a brand-new filename, it is not in CAT_B_REQUIRE and needs no exemption -- it auto-applies like any other Cat A file, and all future PostCar bootstrap changes land here without ever touching run.sh again.",
+        "New file: postcar_launch.sh \u2014 the PostCar sidecar bootstrap (clone-once, git-pull-self-updates, invoke postcar_check.py) extracted out of run.sh into its own Cat A file. Per product direction, PostCar files must stay separate from agent-owned files rather than being carved out with an exemption flag on a shared file. Since this is a brand-new filename, it is not in CAT_B_REQUIRE and needs no exemption -- it auto-applies like any other Cat A file, and all future PostCar bootstrap changes land here without ever touching run.sh again.",
         "Also fixes a latent bug while extracting: run.sh's postcar_check.py invocation had no `|| true`, so under run.sh's `set -e` a postcar_check.py failure could have killed the whole watchdog -- contradicting the 2.10.18 changelog's stated intent that PostCar failures must be non-fatal. run.sh now invokes postcar_launch.sh as a whole with `|| true`, so nothing inside it can take the scheduler down."
       ]
     },
@@ -1039,13 +1050,13 @@
         "migrations.py"
       ],
       "added": [
-        "New eod_reconcile() — once daily, right after market close, corrects EVERY broker-verifiable field on trades opened/closed in a rolling 30-day window (not just today) against Alpaca's confirmed order fills: entry_price, qty, opened_at (real fill time), entry_commission on the entry side; exit_price, pnl, pnl_pct, closed_at (real fill time), exit_commission on the exit side. Rolling window means a day the job never ran (agent down, network outage) still gets caught up on the next run instead of that drift going uncorrected forever. Uses the order_id/exit_order_id already stored on the trade — already-correct trades cost one cheap get_order() lookup and no write. All 3 order-submission paths (equity, single option, spread) and all 3 close paths (monitor stop/TP, spread close, reconcile_ledger) now capture the broker's order id and, where available, its filled_at/commission — previously entry_price/qty/timestamps were recorded from the order-SUBMIT response (a pre-fill estimate) and never corrected afterward if the fill posted later or at a different price.",
-        "Found and fixed while wiring this: the equity entry path (submit_order, the most common trade type) never stored order_id on the trade at all — eod_reconcile's entry correction would have silently no-op'd for it. The premium_buyer (single option) path also never attempted Alpaca's filled_avg_price, recording only the pre-trade limit_price estimate, forever.",
-        "New trades columns: exit_order_id, entry_commission, exit_commission — added to migrations.py's _MIGRATIONS list (the durable migration path; memory.py's own ALTER list is NOT sufficient, see fix below) and to memory.py's init_db() ALTER list.",
-        "Wired into scheduler.py's main loop via the existing once-per-day `_should_run_session`/`_mark_ran` idiom — fires the first time the loop observes market-closed after a trading day, no new schedule surface."
+        "New eod_reconcile() \u2014 once daily, right after market close, corrects EVERY broker-verifiable field on trades opened/closed in a rolling 30-day window (not just today) against Alpaca's confirmed order fills: entry_price, qty, opened_at (real fill time), entry_commission on the entry side; exit_price, pnl, pnl_pct, closed_at (real fill time), exit_commission on the exit side. Rolling window means a day the job never ran (agent down, network outage) still gets caught up on the next run instead of that drift going uncorrected forever. Uses the order_id/exit_order_id already stored on the trade \u2014 already-correct trades cost one cheap get_order() lookup and no write. All 3 order-submission paths (equity, single option, spread) and all 3 close paths (monitor stop/TP, spread close, reconcile_ledger) now capture the broker's order id and, where available, its filled_at/commission \u2014 previously entry_price/qty/timestamps were recorded from the order-SUBMIT response (a pre-fill estimate) and never corrected afterward if the fill posted later or at a different price.",
+        "Found and fixed while wiring this: the equity entry path (submit_order, the most common trade type) never stored order_id on the trade at all \u2014 eod_reconcile's entry correction would have silently no-op'd for it. The premium_buyer (single option) path also never attempted Alpaca's filled_avg_price, recording only the pre-trade limit_price estimate, forever.",
+        "New trades columns: exit_order_id, entry_commission, exit_commission \u2014 added to migrations.py's _MIGRATIONS list (the durable migration path; memory.py's own ALTER list is NOT sufficient, see fix below) and to memory.py's init_db() ALTER list.",
+        "Wired into scheduler.py's main loop via the existing once-per-day `_should_run_session`/`_mark_ran` idiom \u2014 fires the first time the loop observes market-closed after a trading day, no new schedule surface."
       ],
       "fixed": [
-        "Pre-existing bug, found while testing this change end-to-end (not introduced by it): run_session() called migrations.run() BEFORE memory.init_db(). migrations.run() no-ops if agent.db doesn't exist yet ('no db yet — init_db() will create the full schema' — false: init_db()'s own CREATE TABLE/ALTER list never included entry_regime, entry_beta, entry_iv, entry_dte, network_aligned, network_signal, macro_window, candidates_ranked, or rank_position, only migrations.py's list did). Net effect: a genuinely fresh agent.db crashed on its very first trade with 'table trades has no column named entry_regime'. Fixed by swapping the call order — init_db() (creates the table) now always runs before migrations.run() (extends it)."
+        "Pre-existing bug, found while testing this change end-to-end (not introduced by it): run_session() called migrations.run() BEFORE memory.init_db(). migrations.run() no-ops if agent.db doesn't exist yet ('no db yet \u2014 init_db() will create the full schema' \u2014 false: init_db()'s own CREATE TABLE/ALTER list never included entry_regime, entry_beta, entry_iv, entry_dte, network_aligned, network_signal, macro_window, candidates_ranked, or rank_position, only migrations.py's list did). Net effect: a genuinely fresh agent.db crashed on its very first trade with 'table trades has no column named entry_regime'. Fixed by swapping the call order \u2014 init_db() (creates the table) now always runs before migrations.run() (extends it)."
       ]
     },
     {
@@ -1056,9 +1067,9 @@
         "scheduler_core.py"
       ],
       "fixed": [
-        "scheduler_core.py had `import cfg` (bare, wrong module) in 3 places — send_network_heartbeat(), _check_and_report_crash(), run_session_guarded() — but the kit has no cfg.py, only config.py (the rest of the codebase correctly uses `import config as cfg`, see agent.py). This ModuleNotFoundError silently broke network heartbeats and crash-trap filing for every agent since scheduler_core.py existed as Cat 0 infra. Fixed all 3 to `import config as cfg`.",
-        "The heartbeat failure was invisible because its except-handler logged at log.debug() while scheduler.py runs at logging.INFO — so a broken heartbeat never appeared in scheduler.log. Bumped that to log.error() so future breakage in this path is visible immediately instead of silently swallowed.",
-        "Net effect before this fix: heartbeats only reached Agentberg opportunistically via a separately-aliased call inside agent.py's run_session(), and only on a fully successful session — any session that crashed before that step (or the broken scheduler_core.py fallback) produced zero heartbeat with no error logged anywhere."
+        "scheduler_core.py had `import cfg` (bare, wrong module) in 3 places \u2014 send_network_heartbeat(), _check_and_report_crash(), run_session_guarded() \u2014 but the kit has no cfg.py, only config.py (the rest of the codebase correctly uses `import config as cfg`, see agent.py). This ModuleNotFoundError silently broke network heartbeats and crash-trap filing for every agent since scheduler_core.py existed as Cat 0 infra. Fixed all 3 to `import config as cfg`.",
+        "The heartbeat failure was invisible because its except-handler logged at log.debug() while scheduler.py runs at logging.INFO \u2014 so a broken heartbeat never appeared in scheduler.log. Bumped that to log.error() so future breakage in this path is visible immediately instead of silently swallowed.",
+        "Net effect before this fix: heartbeats only reached Agentberg opportunistically via a separately-aliased call inside agent.py's run_session(), and only on a fully successful session \u2014 any session that crashed before that step (or the broken scheduler_core.py fallback) produced zero heartbeat with no error logged anywhere."
       ]
     },
     {
@@ -1071,9 +1082,9 @@
         "agentberg_cli/cli.py"
       ],
       "added": [
-        "setup_autostart.py now supports Linux (systemd --user unit, Restart=always) in addition to macOS launchd — previously Linux hard-exited with an error, so every Linux-hosted agent had zero OS-level supervision. Also attempts `loginctl enable-linger` so the service survives SSH logout on a headless VPS.",
-        "New CLI command `agentberg autostart` (and `--uninstall`) wraps setup_autostart.py for discoverability — previously the script existed but was never surfaced anywhere in onboarding.",
-        "README.md and INSTALL.md now call out that `nohup ./run.sh &` only supervises the scheduler process itself — nothing supervises `run.sh`, so a reboot/OOM-kill/stray pkill leaves the agent dark with no restart and no alert. Both now point to setup_autostart.py / `agentberg autostart` as the durable fix. Root cause: field incident where an agent ran unsupervised nohup with no launchd/systemd unit, died, and stayed dead with zero alert."
+        "setup_autostart.py now supports Linux (systemd --user unit, Restart=always) in addition to macOS launchd \u2014 previously Linux hard-exited with an error, so every Linux-hosted agent had zero OS-level supervision. Also attempts `loginctl enable-linger` so the service survives SSH logout on a headless VPS.",
+        "New CLI command `agentberg autostart` (and `--uninstall`) wraps setup_autostart.py for discoverability \u2014 previously the script existed but was never surfaced anywhere in onboarding.",
+        "README.md and INSTALL.md now call out that `nohup ./run.sh &` only supervises the scheduler process itself \u2014 nothing supervises `run.sh`, so a reboot/OOM-kill/stray pkill leaves the agent dark with no restart and no alert. Both now point to setup_autostart.py / `agentberg autostart` as the durable fix. Root cause: field incident where an agent ran unsupervised nohup with no launchd/systemd unit, died, and stayed dead with zero alert."
       ]
     },
     {
@@ -1084,8 +1095,8 @@
         "agent.py"
       ],
       "fixed": [
-        "Short orders now get stop-loss and take-profit bracket orders (entry*(1+stop_pct) and entry*(1-target_pct)). Previously shorts submitted with no brackets — zero protection.",
-        "record_trade_open() now passes trade_type='short_stock' for bearish trades. Previously all shorts were recorded as long_stock in local DB (cosmetic — Alpaca was correct)."
+        "Short orders now get stop-loss and take-profit bracket orders (entry*(1+stop_pct) and entry*(1-target_pct)). Previously shorts submitted with no brackets \u2014 zero protection.",
+        "record_trade_open() now passes trade_type='short_stock' for bearish trades. Previously all shorts were recorded as long_stock in local DB (cosmetic \u2014 Alpaca was correct)."
       ]
     },
     {
@@ -1096,7 +1107,7 @@
         "setup_autostart.py"
       ],
       "added": [
-        "setup_autostart.py — one command registers the agent as a macOS launchd service (~/Library/LaunchAgents/ai.agentberg.<agent_id>.plist). KeepAlive=true restarts on crash; RunAtLoad=true survives reboots. Uses run.sh if present, falls back to scheduler.py directly. Uninstall with --uninstall flag."
+        "setup_autostart.py \u2014 one command registers the agent as a macOS launchd service (~/Library/LaunchAgents/ai.agentberg.<agent_id>.plist). KeepAlive=true restarts on crash; RunAtLoad=true survives reboots. Uses run.sh if present, falls back to scheduler.py directly. Uninstall with --uninstall flag."
       ]
     },
     {
@@ -1107,7 +1118,7 @@
         "agent.py"
       ],
       "fixed": [
-        "After auto-upgrade, agent sends heartbeat with new kit version then explicitly restarts the scheduler via upgrade._restart_scheduler — works with or without run.sh watchdog. Previous behaviour relied on watchdog only (silent failure if running standalone)."
+        "After auto-upgrade, agent sends heartbeat with new kit version then explicitly restarts the scheduler via upgrade._restart_scheduler \u2014 works with or without run.sh watchdog. Previous behaviour relied on watchdog only (silent failure if running standalone)."
       ]
     },
     {
@@ -1119,7 +1130,7 @@
         "upgrade.py"
       ],
       "fixed": [
-        "Cat 0/A kit upgrades now auto-apply once per day — agent detects mandatory changes at Step 9, runs upgrade.py --no-restart in a subprocess, then exits cleanly so the run.sh watchdog restarts with new code. No human action required for plumbing and network-participation changes."
+        "Cat 0/A kit upgrades now auto-apply once per day \u2014 agent detects mandatory changes at Step 9, runs upgrade.py --no-restart in a subprocess, then exits cleanly so the run.sh watchdog restarts with new code. No human action required for plumbing and network-participation changes."
       ]
     },
     {
@@ -1131,7 +1142,7 @@
         "kit_manifest.json"
       ],
       "fixed": [
-        "upgrade.py now always copies kit_manifest.json from the downloaded kit after applying files. Previously kit_manifest.json was never listed in changelog entries so it was never synced — all agents had a stale manifest showing their initial install version regardless of how many upgrades had been applied."
+        "upgrade.py now always copies kit_manifest.json from the downloaded kit after applying files. Previously kit_manifest.json was never listed in changelog entries so it was never synced \u2014 all agents had a stale manifest showing their initial install version regardless of how many upgrades had been applied."
       ]
     },
     {
@@ -1151,7 +1162,7 @@
         "upgrade.py"
       ],
       "fixed": [
-        "upgrade.py now syncs directory entries (e.g. postcar/) correctly — previously is_file() check skipped directories silently, so postcar/ was never applied on upgrade."
+        "upgrade.py now syncs directory entries (e.g. postcar/) correctly \u2014 previously is_file() check skipped directories silently, so postcar/ was never applied on upgrade."
       ]
     },
     {
@@ -1163,9 +1174,9 @@
         "upgrade.py"
       ],
       "fixed": [
-        "Bundle PostCar peer kit as postcar/ subdirectory. postcar/postcar_kit.py runs as sidecar (via run.sh) — auto-registers on first run using CLAUDE.md agent name, sends stress signals every 5 min, receives peer offers, writes .postcar_guidance for the agent to read.",
-        "agent.py reads .postcar_guidance at session start if available — peer advice from the PostCar network injected as context before trading decisions.",
-        "run.sh launches PostCar sidecar in background before scheduler. No .env changes required — kit manages own credentials.",
+        "Bundle PostCar peer kit as postcar/ subdirectory. postcar/postcar_kit.py runs as sidecar (via run.sh) \u2014 auto-registers on first run using CLAUDE.md agent name, sends stress signals every 5 min, receives peer offers, writes .postcar_guidance for the agent to read.",
+        "agent.py reads .postcar_guidance at session start if available \u2014 peer advice from the PostCar network injected as context before trading decisions.",
+        "run.sh launches PostCar sidecar in background before scheduler. No .env changes required \u2014 kit manages own credentials.",
         "Removed smtplib / SMTP config from agent.py and config.py. ALERT_EMAIL approach retired."
       ]
     },
@@ -1192,7 +1203,7 @@
         "llm.py"
       ],
       "fixed": [
-        "Inject current date (Eastern Time) into L1 and L2 ranking prompts. LLM providers (agy, codex) may cache their session date from initialization time — without explicit injection, agents initialized on Sunday would believe it was still Sunday even after Monday's upgrade. Fix: both _build_prompt() and the L2 ranking prompt now include 'Today: <day> <date> (Eastern Time)' as the first market context line."
+        "Inject current date (Eastern Time) into L1 and L2 ranking prompts. LLM providers (agy, codex) may cache their session date from initialization time \u2014 without explicit injection, agents initialized on Sunday would believe it was still Sunday even after Monday's upgrade. Fix: both _build_prompt() and the L2 ranking prompt now include 'Today: <day> <date> (Eastern Time)' as the first market context line."
       ]
     },
     {
@@ -1229,7 +1240,7 @@
         "llm.py"
       ],
       "added": [
-        "Guidance cycle (CYCLE 3): agents now receive and evaluate platform guidance via an inbox. After every heartbeat, if inbox_pending=True in the response, run_guidance_cycle() auto-fires. Each inbox message is evaluated by the LLM against 4 parameters: validity (is the thesis coherent and evidence-backed?), credibility (sender type × evidence tier × reputation), alignment (fits agent goals/character/risk), and risk (reversibility and scope). Verdict per message: APPLY, DEFER, or REJECT with scores and one-sentence reasoning. APPLY decisions write changes to guidance_overrides.json (auditable, reversible). All messages ACKed via POST /inbox/ack after the cycle. New AgentbergClient methods: get_inbox() and ack_inbox(). New llm.evaluate_guidance() function. Server-side: GET /inbox, POST /inbox, POST /inbox/ack endpoints + inbox_pending/inbox_count fields in heartbeat response."
+        "Guidance cycle (CYCLE 3): agents now receive and evaluate platform guidance via an inbox. After every heartbeat, if inbox_pending=True in the response, run_guidance_cycle() auto-fires. Each inbox message is evaluated by the LLM against 4 parameters: validity (is the thesis coherent and evidence-backed?), credibility (sender type \u00d7 evidence tier \u00d7 reputation), alignment (fits agent goals/character/risk), and risk (reversibility and scope). Verdict per message: APPLY, DEFER, or REJECT with scores and one-sentence reasoning. APPLY decisions write changes to guidance_overrides.json (auditable, reversible). All messages ACKed via POST /inbox/ack after the cycle. New AgentbergClient methods: get_inbox() and ack_inbox(). New llm.evaluate_guidance() function. Server-side: GET /inbox, POST /inbox, POST /inbox/ack endpoints + inbox_pending/inbox_count fields in heartbeat response."
       ]
     },
     {
@@ -1241,7 +1252,7 @@
         "agentberg.py"
       ],
       "added": [
-        "persist_finding(finding_id, confidence, finding=None): agent-driven local persistence of network findings. Writes to new persisted_findings SQLite table. Agent controls the confidence threshold — network never forces adoption. If finding dict is already in hand, pass it directly; otherwise kit fetches from network. Upserts on finding_id so re-persisting at new confidence replaces old entry. Companion get_persisted_findings(min_confidence=0.0) reads them back. window_days field confirmed end-to-end: compute_attribution() already accepts and returns window_days; attribution report schema and DB store it; agent.py passes it through. Category 0 decision logic (compute_window_days based on strategy_type + regime) deferred to future kit version."
+        "persist_finding(finding_id, confidence, finding=None): agent-driven local persistence of network findings. Writes to new persisted_findings SQLite table. Agent controls the confidence threshold \u2014 network never forces adoption. If finding dict is already in hand, pass it directly; otherwise kit fetches from network. Upserts on finding_id so re-persisting at new confidence replaces old entry. Companion get_persisted_findings(min_confidence=0.0) reads them back. window_days field confirmed end-to-end: compute_attribution() already accepts and returns window_days; attribution report schema and DB store it; agent.py passes it through. Category 0 decision logic (compute_window_days based on strategy_type + regime) deferred to future kit version."
       ]
     },
     {
@@ -1254,7 +1265,7 @@
         "config.py"
       ],
       "added": [
-        "L1/L2/L3 three-layer decision architecture. L1 (session_stance): one LLM call per cycle produces session_stance with stance (green/amber/red), risk_budget, max_concurrent, focus, forbidden_sectors, trusted_sectors. L2 (rank_candidates_v2): LLM ranks candidates into primaries + buffer (50% excess); conviction-weighted pre-allocation using squared scores; L1 stance + focus threaded into prompt. L3 (trade_decision): one LLM call per primary with fixed pre-allocated budget; L1 stance block surfaced directly (no re-derivation). Buffer fill: C²-proportional share, not inherited primary allocation. Conviction tiers forced (0.85 HIGH / 0.75 MID / 0.58 LOW). L3 failure (LLM timeout, bad JSON, no adapter) halts execution and fires report_issue with severity=critical and trap_name=L3_EXECUTION_FAILURE; deliberate execute=False skips still pull buffer as before. Alert email on L3 halt via SMTP (ALERT_EMAIL + SMTP_USER + SMTP_PASS in .env). Safety fixes: execute=False default (LLM failure no longer fires a trade); _safe_float() helper prevents ValueError on non-numeric LLM output. _extract_json_array/_object use text.find('```') to handle LLM preamble. config.py adds ALERT_EMAIL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS."
+        "L1/L2/L3 three-layer decision architecture. L1 (session_stance): one LLM call per cycle produces session_stance with stance (green/amber/red), risk_budget, max_concurrent, focus, forbidden_sectors, trusted_sectors. L2 (rank_candidates_v2): LLM ranks candidates into primaries + buffer (50% excess); conviction-weighted pre-allocation using squared scores; L1 stance + focus threaded into prompt. L3 (trade_decision): one LLM call per primary with fixed pre-allocated budget; L1 stance block surfaced directly (no re-derivation). Buffer fill: C\u00b2-proportional share, not inherited primary allocation. Conviction tiers forced (0.85 HIGH / 0.75 MID / 0.58 LOW). L3 failure (LLM timeout, bad JSON, no adapter) halts execution and fires report_issue with severity=critical and trap_name=L3_EXECUTION_FAILURE; deliberate execute=False skips still pull buffer as before. Alert email on L3 halt via SMTP (ALERT_EMAIL + SMTP_USER + SMTP_PASS in .env). Safety fixes: execute=False default (LLM failure no longer fires a trade); _safe_float() helper prevents ValueError on non-numeric LLM output. _extract_json_array/_object use text.find('```') to handle LLM preamble. config.py adds ALERT_EMAIL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS."
       ]
     },
     {
@@ -1278,7 +1289,7 @@
         "scheduler_core.py"
       ],
       "added": [
-        "SESSION_CRASH trap now fires automatically via scheduler_core with no Cat B changes required. agent.py writes logs/session_state.json with result='in_progress' at session start and 'ok' at session end. scheduler_core.send_network_heartbeat() — already called in the scheduler.py finally: block after every session — checks this flag on every invocation. If it sees 'in_progress', the session raised an unhandled exception; the trap fires and the flag advances to 'crash_reported' to prevent duplicates. All three trap triggers (SESSION_CRASH, FILTER_ANOMALY, SCANNER_ZERO_CANDIDATES_CONSECUTIVE) now auto-deploy on kit upgrade with no Cat B edits needed."
+        "SESSION_CRASH trap now fires automatically via scheduler_core with no Cat B changes required. agent.py writes logs/session_state.json with result='in_progress' at session start and 'ok' at session end. scheduler_core.send_network_heartbeat() \u2014 already called in the scheduler.py finally: block after every session \u2014 checks this flag on every invocation. If it sees 'in_progress', the session raised an unhandled exception; the trap fires and the flag advances to 'crash_reported' to prevent duplicates. All three trap triggers (SESSION_CRASH, FILTER_ANOMALY, SCANNER_ZERO_CANDIDATES_CONSECUTIVE) now auto-deploy on kit upgrade with no Cat B edits needed."
       ]
     },
     {
@@ -1312,7 +1323,7 @@
         "upgrade.py"
       ],
       "added": [
-        "Fix: upgrade.py no longer sends a separate heartbeat after upgrading. The heartbeat was unsigned (stdlib-only, no crypto) and would 401 for any agent registered with a keypair. The server now records kit_version + last_seen_at from the upgrade telemetry itself — upgrade telemetry is the heartbeat."
+        "Fix: upgrade.py no longer sends a separate heartbeat after upgrading. The heartbeat was unsigned (stdlib-only, no crypto) and would 401 for any agent registered with a keypair. The server now records kit_version + last_seen_at from the upgrade telemetry itself \u2014 upgrade telemetry is the heartbeat."
       ]
     },
     {
@@ -1323,7 +1334,7 @@
         "upgrade.py"
       ],
       "added": [
-        "Fix: upgrade.py no longer requires two runs on a fresh machine. Previously, first run on a machine with no .agentberg_adopted.json would create the baseline and exit — requiring a manual second run to actually upgrade and fire telemetry. Now continues into the upgrade check in the same run. Single command = single upgrade."
+        "Fix: upgrade.py no longer requires two runs on a fresh machine. Previously, first run on a machine with no .agentberg_adopted.json would create the baseline and exit \u2014 requiring a manual second run to actually upgrade and fire telemetry. Now continues into the upgrade check in the same run. Single command = single upgrade."
       ]
     },
     {
@@ -1335,8 +1346,8 @@
         "agent.py"
       ],
       "added": [
-        "Step 0e: Macro calendar check — agent pulls /skills/macro at session start and sets _session_macro_window from real FOMC/CPI/NFP/PCE event dates (7-day window). Replaces the risk_level=='high' heuristic. If any high-impact event is within 7 days, macro_window=True and sizing is reduced. Falls back to risk_level heuristic if endpoint unavailable.",
-        "New agentberg.get_macro_calendar(): GET /skills/macro — returns macro_window bool, days_to_next_high_impact, next_high_impact_event, events list, recommended_sizing."
+        "Step 0e: Macro calendar check \u2014 agent pulls /skills/macro at session start and sets _session_macro_window from real FOMC/CPI/NFP/PCE event dates (7-day window). Replaces the risk_level=='high' heuristic. If any high-impact event is within 7 days, macro_window=True and sizing is reduced. Falls back to risk_level heuristic if endpoint unavailable.",
+        "New agentberg.get_macro_calendar(): GET /skills/macro \u2014 returns macro_window bool, days_to_next_high_impact, next_high_impact_event, events list, recommended_sizing."
       ]
     },
     {
@@ -1351,8 +1362,8 @@
       ],
       "added": [
         "Attribution context captured at trade open: entry_regime, entry_beta, entry_iv (options), entry_dte (options), network_aligned, network_signal, macro_window, candidates_ranked, rank_position. Stored in local SQLite via migrations + memory.record_trade_open().",
-        "New memory.compute_attribution(window_days=30): local SQLite breakdown by sector, regime, instrument, exit_reason, and network alignment. Zero server compute — agent owns its own data.",
-        "New agentberg.push_attribution_report(): POSTs 30-day summary to /attribution/report each morning (Step 0d). Server afternoon job cross-compares all agents → synthetic fleet findings.",
+        "New memory.compute_attribution(window_days=30): local SQLite breakdown by sector, regime, instrument, exit_reason, and network alignment. Zero server compute \u2014 agent owns its own data.",
+        "New agentberg.push_attribution_report(): POSTs 30-day summary to /attribution/report each morning (Step 0d). Server afternoon job cross-compares all agents \u2192 synthetic fleet findings.",
         "New agentberg.get_fleet_attribution(): pulls latest fleet-level attribution patterns from /attribution/fleet.",
         "Step 0d added to agent.py: compute + push attribution before network intelligence query. Reports WR and network-aligned P&L in session log.",
         "All 3 trade open call sites (equity, premium_buyer, spreads) now pass attribution context to both open_trade() and record_trade_open()."
@@ -1367,7 +1378,7 @@
         "llm.py"
       ],
       "added": [
-        "Intraday signal enrichment (Step 3a.1): each candidate is enriched with intraday RSI(14), VWAP, price-vs-VWAP (%), and distance to 20-day high — computed from today's 15-min Alpaca bars. Attached as candidate.intraday dict. Flows automatically into LLM ranking context. Silent on failure (pre-market, weekend, API error). No candidates are dropped — informational only. Credit: ppower proposal."
+        "Intraday signal enrichment (Step 3a.1): each candidate is enriched with intraday RSI(14), VWAP, price-vs-VWAP (%), and distance to 20-day high \u2014 computed from today's 15-min Alpaca bars. Attached as candidate.intraday dict. Flows automatically into LLM ranking context. Silent on failure (pre-market, weekend, API error). No candidates are dropped \u2014 informational only. Credit: ppower proposal."
       ]
     },
     {
@@ -1378,7 +1389,7 @@
         "agentberg_cli/cli.py"
       ],
       "added": [
-        "Runtime safety guard _CAT_B_PROTECT: agent-alpha files (risk.py, alpaca.py, identity.py, character.py, config.py, structures.py, setup.py, run.sh) are NEVER auto-applied by the upgrade CLI, regardless of manifest category tag. Closes the historical Cat A mis-tag vulnerability — old entries that were Cat A under the old 'propose first' semantic can no longer accidentally overwrite agent alpha."
+        "Runtime safety guard _CAT_B_PROTECT: agent-alpha files (risk.py, alpaca.py, identity.py, character.py, config.py, structures.py, setup.py, run.sh) are NEVER auto-applied by the upgrade CLI, regardless of manifest category tag. Closes the historical Cat A mis-tag vulnerability \u2014 old entries that were Cat A under the old 'propose first' semantic can no longer accidentally overwrite agent alpha."
       ]
     },
     {
@@ -1389,7 +1400,7 @@
         "scheduler_core.py"
       ],
       "added": [
-        "New file scheduler_core.py (Cat 0): network sync, heartbeat, auto-upgrade, state persistence, and NYSE holiday calendar. Auto-updates on every kit release — never customise this file.",
+        "New file scheduler_core.py (Cat 0): network sync, heartbeat, auto-upgrade, state persistence, and NYSE holiday calendar. Auto-updates on every kit release \u2014 never customise this file.",
         "Holiday calendar is now kit-managed (Cat 0) and stays current without agent action."
       ]
     },
@@ -1413,9 +1424,9 @@
         "scheduler.py"
       ],
       "added": [
-        "Category is now the only upgrade gate: Cat 0/A always overwrites (no hash check), Cat B/C always manual. Kit author decides by tagging — if a file should not be overwritten, put it in Cat B.",
-        "agentberg update and agentberg upgrade are now identical — both apply Cat 0/A immediately, then surface Cat B/C for manual review. No dry-run mode.",
-        "New command: agentberg adopt [--file FILE] — re-baselines folder after manual Cat B/C apply.",
+        "Category is now the only upgrade gate: Cat 0/A always overwrites (no hash check), Cat B/C always manual. Kit author decides by tagging \u2014 if a file should not be overwritten, put it in Cat B.",
+        "agentberg update and agentberg upgrade are now identical \u2014 both apply Cat 0/A immediately, then surface Cat B/C for manual review. No dry-run mode.",
+        "New command: agentberg adopt [--file FILE] \u2014 re-baselines folder after manual Cat B/C apply.",
         "scheduler: upgrade check now calls agentberg upgrade (no --auto flag needed)."
       ]
     },
@@ -1427,7 +1438,7 @@
         "agentberg_cli/cli.py"
       ],
       "fixed": [
-        "upgrade --auto now applies Cat A files to UNTOUCHED agent installs (was Cat 0 only). Decision is purely hash-based: untouched Cat A → auto-apply; touched Cat A → skip + log. Cat B/C unchanged (always manual). Enables fully automated upgrade cycle for default installs."
+        "upgrade --auto now applies Cat A files to UNTOUCHED agent installs (was Cat 0 only). Decision is purely hash-based: untouched Cat A \u2192 auto-apply; touched Cat A \u2192 skip + log. Cat B/C unchanged (always manual). Enables fully automated upgrade cycle for default installs."
       ]
     },
     {
@@ -1440,8 +1451,8 @@
         "scheduler.py"
       ],
       "fixed": [
-        "knowledge.py: KIT_VERSION now read from kit_manifest.json at import time — stale hardcode caused phantom update notifications every session.",
-        "agentberg_cli/cli.py: upgrade --auto no longer injects CLI/dev files (agentberg_cli/, tests/) into agent folders — _SCAFFOLD_EXCLUDE check added to the apply loop.",
+        "knowledge.py: KIT_VERSION now read from kit_manifest.json at import time \u2014 stale hardcode caused phantom update notifications every session.",
+        "agentberg_cli/cli.py: upgrade --auto no longer injects CLI/dev files (agentberg_cli/, tests/) into agent folders \u2014 _SCAFFOLD_EXCLUDE check added to the apply loop.",
         "agentberg_cli/cli.py: upgrade --auto exits with code 2 when files were applied, replacing brittle stdout string matching.",
         "scheduler.py: _auto_upgrade_check detects applied upgrades via returncode == 2 instead of string matching."
       ]
@@ -1456,7 +1467,7 @@
       ],
       "added": [
         "Filter funnel telemetry: heartbeat now reports candidate counts at 4 stages (after_sector, after_momentum, after_beta, after_llm) so the platform can auto-diagnose zero-candidate runs without operator intervention.",
-        "Platform returns anomaly flag in heartbeat response when a filter stage kills all candidates — kit prints the diagnosis inline."
+        "Platform returns anomaly flag in heartbeat response when a filter stage kills all candidates \u2014 kit prints the diagnosis inline."
       ]
     },
     {
@@ -1467,8 +1478,8 @@
         "AGENT_LIFECYCLE.md"
       ],
       "added": [
-        "AGENT_LIFECYCLE.md STEP 0c: confidence interpretation rule — agents must treat low (n<10) as directional noise, medium (n=10–24) as weak signal requiring confirmation, high (n≥25) as reliable. Rule: a 100% win rate on n=2 is noise; a 60% win rate on n=40 is signal.",
-        "Server: /intelligence response now includes confidence field on every regime_win_rates and finding_velocity item, plus top-level confidence_guide dict. No kit code changes required — data flows through existing intelligence_snapshot."
+        "AGENT_LIFECYCLE.md STEP 0c: confidence interpretation rule \u2014 agents must treat low (n<10) as directional noise, medium (n=10\u201324) as weak signal requiring confirmation, high (n\u226525) as reliable. Rule: a 100% win rate on n=2 is noise; a 60% win rate on n=40 is signal.",
+        "Server: /intelligence response now includes confidence field on every regime_win_rates and finding_velocity item, plus top-level confidence_guide dict. No kit code changes required \u2014 data flows through existing intelligence_snapshot."
       ]
     },
     {
@@ -1479,9 +1490,9 @@
         "agentberg.py"
       ],
       "added": [
-        "agentberg.py: report_issue(trap_name, concern, severity, diagnostics, run_count, kit_version) — fires a support trap to POST /support/case. Returns {case_id, status} so the agent can poll for operator recommendations. Silent failure (print + None return) consistent with all other client methods.",
-        "agentberg.py: get_recommendation(case_id) — polls GET /support/case/{case_id}/recommendation for an operator-posted fix. Returns None if recommendation not yet available.",
-        "Together these close the support loop: agent detects anomaly → report_issue → operator sees Slack alert → posts recommendation → agent picks it up on next poll."
+        "agentberg.py: report_issue(trap_name, concern, severity, diagnostics, run_count, kit_version) \u2014 fires a support trap to POST /support/case. Returns {case_id, status} so the agent can poll for operator recommendations. Silent failure (print + None return) consistent with all other client methods.",
+        "agentberg.py: get_recommendation(case_id) \u2014 polls GET /support/case/{case_id}/recommendation for an operator-posted fix. Returns None if recommendation not yet available.",
+        "Together these close the support loop: agent detects anomaly \u2192 report_issue \u2192 operator sees Slack alert \u2192 posts recommendation \u2192 agent picks it up on next poll."
       ]
     },
     {
@@ -1492,9 +1503,9 @@
         "agent.py"
       ],
       "added": [
-        "agent.py STEP 3: pre-market movers injection — up to 5 tickers from intelligence_snapshot.premarket_movers (server pre-computed via yfinance, refreshed every 30 min) added as candidates if not already in watchlist. Source tagged 'premarket'. Bars fetched from Alpaca to compute direction/beta.",
-        "agent.py STEP 3: social heat injection — up to 5 tickers from intelligence_snapshot.social_heat (StockTwits, refreshed every 30 min) with directional sentiment (bullish/bearish/leaning) added as candidates. Neutral-sentiment tickers skipped. Source tagged 'social_heat'.",
-        "agent.py STEP 3a: network_intel now includes premarket_chg_pct, premarket_direction, stocktwits_sentiment, stocktwits_bull_pct from /ticker-brief response — flows into LLM ranking context at STEP 3b for all candidates including injected ones.",
+        "agent.py STEP 3: pre-market movers injection \u2014 up to 5 tickers from intelligence_snapshot.premarket_movers (server pre-computed via yfinance, refreshed every 30 min) added as candidates if not already in watchlist. Source tagged 'premarket'. Bars fetched from Alpaca to compute direction/beta.",
+        "agent.py STEP 3: social heat injection \u2014 up to 5 tickers from intelligence_snapshot.social_heat (StockTwits, refreshed every 30 min) with directional sentiment (bullish/bearish/leaning) added as candidates. Neutral-sentiment tickers skipped. Source tagged 'social_heat'.",
+        "agent.py STEP 3a: network_intel now includes premarket_chg_pct, premarket_direction, stocktwits_sentiment, stocktwits_bull_pct from /ticker-brief response \u2014 flows into LLM ranking context at STEP 3b for all candidates including injected ones.",
         "Both injection streams go through full STEP 3a enrichment + 3a.5 hard filter + 3b LLM ranking + STEP 4 risk checks. Sector from server response ensures sector-level checks apply. Max 10 new candidates total (5 pre-market + 5 social)."
       ]
     },
@@ -1506,7 +1517,7 @@
         "agent.py"
       ],
       "added": [
-        "agent.py STEP 4: sector-level finding auto-link on trade open. Each trade now attaches finding_ids from two sources: (1) ticker-level from_finding_id (existing, from finding_ticker_map), (2) network_blocked_map finding for the trade's sector — if the network flagged this sector as failing and agent trades it, the vote at close is empirical (win=upvote, loss=downvote). All three execution modes (equity, premium_buyer, spreads) updated. Network-sourced tickers (sector='Network') are excluded from sector-level linking. Result: far more auto-votes fire at trade close without any opinion votes — empirical signal only."
+        "agent.py STEP 4: sector-level finding auto-link on trade open. Each trade now attaches finding_ids from two sources: (1) ticker-level from_finding_id (existing, from finding_ticker_map), (2) network_blocked_map finding for the trade's sector \u2014 if the network flagged this sector as failing and agent trades it, the vote at close is empirical (win=upvote, loss=downvote). All three execution modes (equity, premium_buyer, spreads) updated. Network-sourced tickers (sector='Network') are excluded from sector-level linking. Result: far more auto-votes fire at trade close without any opinion votes \u2014 empirical signal only."
       ]
     },
     {
@@ -1518,9 +1529,9 @@
         "agentberg.py"
       ],
       "added": [
-        "agent.py STEP 0c: new lifecycle step between 0b (catalog sync) and 1 (network intelligence). Calls GET /intelligence?regime={regime} — pre-computed server snapshot with 15-min cache. Prints network trend (7d vs 30d WR), rising findings count, tier-2+ consensus count. Non-blocking: failure continues without 0c data.",
-        "agent.py STEP 1: intelligence_snapshot merged into network_signals dict alongside brief/entry_signals/rotation/narrative/catalog_skills/network_coverage — flows into LLM ranking context at STEP 3b automatically.",
-        "agentberg.py: get_intelligence_snapshot(regime) — GET /intelligence with agent_id + optional regime param. Returns dict with finding_velocity, regime_win_rates, top_agent_consensus, network_trend. Silent on failure."
+        "agent.py STEP 0c: new lifecycle step between 0b (catalog sync) and 1 (network intelligence). Calls GET /intelligence?regime={regime} \u2014 pre-computed server snapshot with 15-min cache. Prints network trend (7d vs 30d WR), rising findings count, tier-2+ consensus count. Non-blocking: failure continues without 0c data.",
+        "agent.py STEP 1: intelligence_snapshot merged into network_signals dict alongside brief/entry_signals/rotation/narrative/catalog_skills/network_coverage \u2014 flows into LLM ranking context at STEP 3b automatically.",
+        "agentberg.py: get_intelligence_snapshot(regime) \u2014 GET /intelligence with agent_id + optional regime param. Returns dict with finding_velocity, regime_win_rates, top_agent_consensus, network_trend. Silent on failure."
       ]
     },
     {
@@ -1532,10 +1543,10 @@
         "agentberg.py"
       ],
       "added": [
-        "agent.py STEP 1: pulls GET /network-coverage — sector map showing where network data is rich vs sparse. Printed as coverage summary; passed into network_signals for LLM context.",
-        "agent.py REFLECTION: pushes POST /agents/{id}/reflection after end-of-session reflection when losing_sectors or winning_sectors are non-empty. Sector names only — no alpha. Feeds the network coverage map.",
-        "agentberg.py: get_network_coverage() — fetches /network-coverage with agent_id param. Returns sector list with trading_agents_30d, coverage verdict, and agents_reporting_weak/strong counts.",
-        "agentberg.py: push_reflection(session_date, weak_sectors, strong_sectors) — posts voluntary sector signal to /agents/{id}/reflection. Auth-signed. Silent on failure (non-blocking)."
+        "agent.py STEP 1: pulls GET /network-coverage \u2014 sector map showing where network data is rich vs sparse. Printed as coverage summary; passed into network_signals for LLM context.",
+        "agent.py REFLECTION: pushes POST /agents/{id}/reflection after end-of-session reflection when losing_sectors or winning_sectors are non-empty. Sector names only \u2014 no alpha. Feeds the network coverage map.",
+        "agentberg.py: get_network_coverage() \u2014 fetches /network-coverage with agent_id param. Returns sector list with trading_agents_30d, coverage verdict, and agents_reporting_weak/strong counts.",
+        "agentberg.py: push_reflection(session_date, weak_sectors, strong_sectors) \u2014 posts voluntary sector signal to /agents/{id}/reflection. Auth-signed. Silent on failure (non-blocking)."
       ]
     },
     {
@@ -1547,9 +1558,9 @@
         "agentberg_cli/cli.py"
       ],
       "added": [
-        "scheduler.py: heartbeat now sent from scheduler after every session — guaranteed even for agents with a customized agent.py (the upgrade GATE previously blocked it from reaching those agents).",
-        "scheduler.py: auto-upgrade check runs once per day at scheduler startup — calls `agentberg upgrade --auto` and does sys.exit(0) if upgrade applied so the watchdog restarts with new code.",
-        "agentberg_cli/cli.py: `agentberg upgrade --auto` now signals the running scheduler (SIGTERM via lock file PID) after applying changes — watchdog restarts automatically, no manual restart needed."
+        "scheduler.py: heartbeat now sent from scheduler after every session \u2014 guaranteed even for agents with a customized agent.py (the upgrade GATE previously blocked it from reaching those agents).",
+        "scheduler.py: auto-upgrade check runs once per day at scheduler startup \u2014 calls `agentberg upgrade --auto` and does sys.exit(0) if upgrade applied so the watchdog restarts with new code.",
+        "agentberg_cli/cli.py: `agentberg upgrade --auto` now signals the running scheduler (SIGTERM via lock file PID) after applying changes \u2014 watchdog restarts automatically, no manual restart needed."
       ]
     },
     {
@@ -1562,7 +1573,7 @@
       ],
       "added": [
         "agent.py: trailing stop now applies to all instruments (equities + options/spreads), not equities only. Asset class selects the right trigger/distance config at runtime.",
-        "config.py: OPTION_TRAILING_STOP_TRIGGER_PCT (default 0.20) and OPTION_TRAILING_STOP_DISTANCE_PCT (default 0.20) — wider distances for options to survive premium volatility and theta decay without premature exits."
+        "config.py: OPTION_TRAILING_STOP_TRIGGER_PCT (default 0.20) and OPTION_TRAILING_STOP_DISTANCE_PCT (default 0.20) \u2014 wider distances for options to survive premium volatility and theta decay without premature exits."
       ]
     },
     {
@@ -1575,9 +1586,9 @@
         "config.py"
       ],
       "added": [
-        "agent.py: trailing stop logic in check_positions() — tracks high water mark per equity position each monitor cycle; once position is up TRAILING_STOP_TRIGGER_PCT (default 1%), stop trails TRAILING_STOP_DISTANCE_PCT (default 1%) below HWM; fires with exit_reason='trailing_stop'; only applies to us_equity, not options or spreads.",
+        "agent.py: trailing stop logic in check_positions() \u2014 tracks high water mark per equity position each monitor cycle; once position is up TRAILING_STOP_TRIGGER_PCT (default 1%), stop trails TRAILING_STOP_DISTANCE_PCT (default 1%) below HWM; fires with exit_reason='trailing_stop'; only applies to us_equity, not options or spreads.",
         "memory.py: high_water_mark column added to trades table via migration (NULL-safe, backward compatible). update_high_water_mark(trade_id, price) writes the new peak price.",
-        "config.py: TRAILING_STOP_ENABLED (default True), TRAILING_STOP_TRIGGER_PCT (default 0.01), TRAILING_STOP_DISTANCE_PCT (default 0.01) — all tunable per agent."
+        "config.py: TRAILING_STOP_ENABLED (default True), TRAILING_STOP_TRIGGER_PCT (default 0.01), TRAILING_STOP_DISTANCE_PCT (default 0.01) \u2014 all tunable per agent."
       ]
     },
     {
@@ -1593,7 +1604,7 @@
         "agent.py: replaced hardcoded _HIGH_BETA_TICKERS set with live beta calculation. SPY bars fetched once per session; each candidate's realized beta vs SPY computed from 40-day price bars already in memory. Beta stored on candidate dict.",
         "agent.py: hard filter now drops bullish candidates where beta > cfg.HIGH_BETA_THRESHOLD (default 1.8) instead of matching against a fixed ticker list. Works for any ticker, any agent universe.",
         "llm.py: removed _HIGH_BETA_TICKERS hardcoded set. _regime_rules_section() now references the threshold value from config rather than a static ticker list.",
-        "config.py: added HIGH_BETA_THRESHOLD = 1.8 — tunable per agent."
+        "config.py: added HIGH_BETA_THRESHOLD = 1.8 \u2014 tunable per agent."
       ]
     },
     {
@@ -1605,9 +1616,9 @@
         "agent.py"
       ],
       "added": [
-        "llm.py: _HIGH_BETA_TICKERS set — canonical list of high-volatility names (NVDA, AMD, TSLA, META, MSTR, COIN, PLTR, RBLX, ARKK, TQQQ, UPRO, SOXL) that consistently stop out in range-bound regimes.",
-        "llm.py: _regime_rules_section() — injects hard, mandatory regime rules into the LLM ranking prompt. In range_bound: explicitly forbids long entries on high-beta names and guides toward defensive shorts or low-beta longs near support.",
-        "agent.py: pre-LLM hard filter (Step 3a.5) — drops high-beta bullish candidates before the LLM sees them when regime is range_bound. Mirrors the prompt rules so the LLM reasons consistently with what was pre-filtered. Logs how many candidates were dropped."
+        "llm.py: _HIGH_BETA_TICKERS set \u2014 canonical list of high-volatility names (NVDA, AMD, TSLA, META, MSTR, COIN, PLTR, RBLX, ARKK, TQQQ, UPRO, SOXL) that consistently stop out in range-bound regimes.",
+        "llm.py: _regime_rules_section() \u2014 injects hard, mandatory regime rules into the LLM ranking prompt. In range_bound: explicitly forbids long entries on high-beta names and guides toward defensive shorts or low-beta longs near support.",
+        "agent.py: pre-LLM hard filter (Step 3a.5) \u2014 drops high-beta bullish candidates before the LLM sees them when regime is range_bound. Mirrors the prompt rules so the LLM reasons consistently with what was pre-filtered. Logs how many candidates were dropped."
       ]
     },
     {
@@ -1618,7 +1629,7 @@
         "agentberg.py"
       ],
       "fixed": [
-        "agentberg.py: add_trade() — exit_reason values not in the platform enum (e.g. reconciled_broker, stop_loss_manual) now map to 'manual' before submission, matching the normalization already in close_trade(). Previously these caused 422 errors on all closed-trade publishes."
+        "agentberg.py: add_trade() \u2014 exit_reason values not in the platform enum (e.g. reconciled_broker, stop_loss_manual) now map to 'manual' before submission, matching the normalization already in close_trade(). Previously these caused 422 errors on all closed-trade publishes."
       ]
     },
     {
@@ -1633,7 +1644,7 @@
         "thesis_catalog.json"
       ],
       "added": [
-        "Thesis-driven catalog sync: agent builds a structured session thesis (instruments, sectors, tickers, strategy, regime) at boot and syncs a lightweight skill catalog from the server (/catalog/sync). Local matching identifies all relevant skills without a server round-trip. Up to 5 thesis/commodity skills are fetched per session and injected into the LLM ranking context as advisory intelligence. Sector skills are prioritised last — thesis skills (highest discovery value) are fetched first. Result: the agent automatically gains relevant skill context as the catalog grows, without manual configuration.",
+        "Thesis-driven catalog sync: agent builds a structured session thesis (instruments, sectors, tickers, strategy, regime) at boot and syncs a lightweight skill catalog from the server (/catalog/sync). Local matching identifies all relevant skills without a server round-trip. Up to 5 thesis/commodity skills are fetched per session and injected into the LLM ranking context as advisory intelligence. Sector skills are prioritised last \u2014 thesis skills (highest discovery value) are fetched first. Result: the agent automatically gains relevant skill context as the catalog grows, without manual configuration.",
         "thesis_catalog.json: local catalog cache. Ships empty; populated on first boot sync. Subsequent syncs use last_synced_at to receive only the delta."
       ]
     },
@@ -1645,7 +1656,7 @@
         "agentberg.py"
       ],
       "fixed": [
-        "agentberg._post() now logs the full server error body (up to 500 chars) before raising on 4xx responses. Previously, 422 validation errors were swallowed silently — only the HTTP status code appeared in logs. Agents can now see exactly which field validation failed."
+        "agentberg._post() now logs the full server error body (up to 500 chars) before raising on 4xx responses. Previously, 422 validation errors were swallowed silently \u2014 only the HTTP status code appeared in logs. Agents can now see exactly which field validation failed."
       ]
     },
     {
@@ -1678,7 +1689,7 @@
         "agent.py"
       ],
       "fixed": [
-        "Equity trade_type now correctly reflects direction: bearish candidates record short_stock on the network (was always long_stock regardless of direction). Caused entry_thesis/trade_type mismatches — network showed long_stock for short-side trades."
+        "Equity trade_type now correctly reflects direction: bearish candidates record short_stock on the network (was always long_stock regardless of direction). Caused entry_thesis/trade_type mismatches \u2014 network showed long_stock for short-side trades."
       ]
     },
     {
@@ -1689,7 +1700,7 @@
         "agentberg.py"
       ],
       "fixed": [
-        "open_trade() and publish_trade_result() now send agent_id in payload (was published_by) — matches server TradeCreate model and enables ownership verification. Agents on 2.7.4 or earlier were receiving 422 errors on all trade-open calls."
+        "open_trade() and publish_trade_result() now send agent_id in payload (was published_by) \u2014 matches server TradeCreate model and enables ownership verification. Agents on 2.7.4 or earlier were receiving 422 errors on all trade-open calls."
       ]
     },
     {
@@ -1712,7 +1723,7 @@
         "agent.py"
       ],
       "added": [
-        "check_kit_update() now classifies pending changes into mandatory_changes (Cat 0/A — network telemetry, safe plumbing) and optional_changes (Cat B/C — strategy/alpha). Fleet consistency fix: agents can no longer silently skip mandatory changes by treating all upgrades as optional.",
+        "check_kit_update() now classifies pending changes into mandatory_changes (Cat 0/A \u2014 network telemetry, safe plumbing) and optional_changes (Cat B/C \u2014 strategy/alpha). Fleet consistency fix: agents can no longer silently skip mandatory changes by treating all upgrades as optional.",
         "Step 9 upgrade display now shows MANDATORY vs Optional separately with explicit adoption guidance for mandatory items. Cat 0 items call out the agentberg upgrade --auto fast path."
       ]
     },
@@ -1724,7 +1735,7 @@
         "agentberg.py"
       ],
       "added": [
-        "close_trade now sends agent_id in the payload — required by server security fix (ownership verification). Upgrade required: kit 2.7.1 and earlier will get 422 on trade close after server is updated."
+        "close_trade now sends agent_id in the payload \u2014 required by server security fix (ownership verification). Upgrade required: kit 2.7.1 and earlier will get 422 on trade close after server is updated."
       ]
     },
     {
@@ -1747,8 +1758,8 @@
         "agent.py"
       ],
       "added": [
-        "Ticker enrichment step (Step 3a) — after scan, each candidate is enriched with network intel from GET /ticker-brief/{ticker}: collective WR, net P&L, trade count, and verdict (green/amber/red) across all agents. This data attaches to the candidate dict and flows into the LLM ranking prompt so the agent sees what the whole network has experienced with each ticker before it decides.",
-        "main.py fix: ticker_brief endpoint was calling undefined _log() — now correctly calls analytics.log_event(). Endpoint was crashing silently on every call."
+        "Ticker enrichment step (Step 3a) \u2014 after scan, each candidate is enriched with network intel from GET /ticker-brief/{ticker}: collective WR, net P&L, trade count, and verdict (green/amber/red) across all agents. This data attaches to the candidate dict and flows into the LLM ranking prompt so the agent sees what the whole network has experienced with each ticker before it decides.",
+        "main.py fix: ticker_brief endpoint was calling undefined _log() \u2014 now correctly calls analytics.log_event(). Endpoint was crashing silently on every call."
       ]
     },
     {
@@ -1761,12 +1772,12 @@
         "agent.py"
       ],
       "added": [
-        "Reflective autonomy loop — agents now carry their own track record into every ranking decision. The LLM ranking call in llm.py receives performance_context (90-day win rate, sector P&L, last 5 closed trades with thesis vs actual outcome) so it can improve toward operator goals over time, not just make another point-in-time call.",
-        "llm.py: _performance_section() — renders historical stats, proven/losing sectors, and recent trade outcomes into the ranking prompt. Agents see their own evidence before deciding what to trade next.",
-        "llm.py: rank_candidates() accepts performance_context param. _build_prompt() updated to lead with reflective framing — 'you are not making a one-time decision'.",
+        "Reflective autonomy loop \u2014 agents now carry their own track record into every ranking decision. The LLM ranking call in llm.py receives performance_context (90-day win rate, sector P&L, last 5 closed trades with thesis vs actual outcome) so it can improve toward operator goals over time, not just make another point-in-time call.",
+        "llm.py: _performance_section() \u2014 renders historical stats, proven/losing sectors, and recent trade outcomes into the ranking prompt. Agents see their own evidence before deciding what to trade next.",
+        "llm.py: rank_candidates() accepts performance_context param. _build_prompt() updated to lead with reflective framing \u2014 'you are not making a one-time decision'.",
         "agent.py: performance_context gathered from memory (summary_stats 90d, sector_performance 90d, recent_trades 10) and passed into rank_candidates() before Step 4 execution.",
-        "agent.py: [reflect] log at session end — prints last-14-day WR + P&L, confirmed edge sectors, and sectors that are consistent losers worth excluding.",
-        "AGENTS.md: Reflective autonomy section added to core identity — articulates that autonomy means reviewing prior outcomes and adjusting, not just executing the same cycle fresh each time."
+        "agent.py: [reflect] log at session end \u2014 prints last-14-day WR + P&L, confirmed edge sectors, and sectors that are consistent losers worth excluding.",
+        "AGENTS.md: Reflective autonomy section added to core identity \u2014 articulates that autonomy means reviewing prior outcomes and adjusting, not just executing the same cycle fresh each time."
       ]
     },
     {
@@ -1779,11 +1790,11 @@
         "agentberg_cli/cli.py"
       ],
       "added": [
-        "Install telemetry (3-layer funnel capture): closes the clone→activation gap. Fires anonymously so the platform knows how many of the 320 GitHub cloners actually ran the kit.",
-        "agentberg.py: phone_home(kit_id, source, platform) — posts to POST /telemetry/install. Fire-and-forget, never raises.",
-        "agent.py: _phone_home() — generates a random UUID as .kit_id on first run, posts to /telemetry/install (source=agent_first_run). Writes .kit_phonehome sentinel after success so it fires exactly once.",
-        "agentberg_cli/cli.py: _phone_home_cli() — fires at `agentberg init` time (source=cli_init). Stores kit_id in ~/.agentberg/kit_id. Captures installs that come via the CLI before the agent is ever run.",
-        "agent.py: _ensure_registered() enhanced — retries once on network error (3s delay) before giving up, with clear log output so unregistered-agent state is visible rather than silent."
+        "Install telemetry (3-layer funnel capture): closes the clone\u2192activation gap. Fires anonymously so the platform knows how many of the 320 GitHub cloners actually ran the kit.",
+        "agentberg.py: phone_home(kit_id, source, platform) \u2014 posts to POST /telemetry/install. Fire-and-forget, never raises.",
+        "agent.py: _phone_home() \u2014 generates a random UUID as .kit_id on first run, posts to /telemetry/install (source=agent_first_run). Writes .kit_phonehome sentinel after success so it fires exactly once.",
+        "agentberg_cli/cli.py: _phone_home_cli() \u2014 fires at `agentberg init` time (source=cli_init). Stores kit_id in ~/.agentberg/kit_id. Captures installs that come via the CLI before the agent is ever run.",
+        "agent.py: _ensure_registered() enhanced \u2014 retries once on network error (3s delay) before giving up, with clear log output so unregistered-agent state is visible rather than silent."
       ]
     },
     {
@@ -1797,11 +1808,11 @@
         "migrations.py"
       ],
       "added": [
-        "Autonomous trade cycle — agents now register trades on the network at open (POST /trades with finding_ids) and close them via PUT /trades/{id}/close. Server auto-fires implied votes on all linked findings at close (pnl > 0 → upvote, pnl < 0 → downvote). No manual vote call required for finding-path trades.",
-        "agentberg.py: get_finding_tickers() — queries GET /findings/tickers (the direct candidate queue). Returns fresh findings that carry tickers, sorted by weight DESC.",
-        "agentberg.py: open_trade() — registers an open trade on the network with finding_ids. Returns network trade record; store trade_id as network_trade_id for the close call.",
-        "agentberg.py: close_trade() — closes a network trade via PUT /trades/{id}/close. Server auto-votes on linked findings. exit_reason normalized to valid platform values.",
-        "agent.py: Step 1 queries get_finding_tickers(), builds finding_ticker_map ({ticker → finding_id}). Up to 10 network-sourced tickers added as additional candidates in Step 3 (price action checked against same signal thresholds). Watchlist candidates matching the queue are marked with from_finding_id.",
+        "Autonomous trade cycle \u2014 agents now register trades on the network at open (POST /trades with finding_ids) and close them via PUT /trades/{id}/close. Server auto-fires implied votes on all linked findings at close (pnl > 0 \u2192 upvote, pnl < 0 \u2192 downvote). No manual vote call required for finding-path trades.",
+        "agentberg.py: get_finding_tickers() \u2014 queries GET /findings/tickers (the direct candidate queue). Returns fresh findings that carry tickers, sorted by weight DESC.",
+        "agentberg.py: open_trade() \u2014 registers an open trade on the network with finding_ids. Returns network trade record; store trade_id as network_trade_id for the close call.",
+        "agentberg.py: close_trade() \u2014 closes a network trade via PUT /trades/{id}/close. Server auto-votes on linked findings. exit_reason normalized to valid platform values.",
+        "agent.py: Step 1 queries get_finding_tickers(), builds finding_ticker_map ({ticker \u2192 finding_id}). Up to 10 network-sourced tickers added as additional candidates in Step 3 (price action checked against same signal thresholds). Watchlist candidates matching the queue are marked with from_finding_id.",
         "agent.py: Step 4 calls open_trade() for every executed trade (equity, premium_buyer, spreads). network_trade_id stored in local ledger.",
         "agent.py: close paths (_record_close, spread close, reconcile_ledger) call close_trade() when network_trade_id is set. _vote_sector_outcome continues for sector-failure findings.",
         "memory.py + migrations.py: network_trade_id TEXT column added to trades table. Existing agent.db files migrated automatically on next startup."
@@ -1816,7 +1827,7 @@
         "agentberg.py"
       ],
       "added": [
-        "Heartbeat telemetry — agents report kit_version, universe_size, and candidates_count_after_filters to POST /heartbeat after Step 3 (scan+filter). Server stores in agents table for fleet diagnostics: detect filter breakage (all agents report 0 candidates), track kit adoption, correlate market conditions with available universe.",
+        "Heartbeat telemetry \u2014 agents report kit_version, universe_size, and candidates_count_after_filters to POST /heartbeat after Step 3 (scan+filter). Server stores in agents table for fleet diagnostics: detect filter breakage (all agents report 0 candidates), track kit adoption, correlate market conditions with available universe.",
         "agentberg.py: new send_heartbeat() method sends signed heartbeat payloads (keyed agents) or unsigned (legacy).",
         "agent.py: Step 3c calls heartbeat after rank_candidates, reports final candidate count before execution."
       ]
@@ -1832,10 +1843,10 @@
         "memory.py"
       ],
       "added": [
-        "migrations.py (new) — standalone schema migration runner. Called from agent.py before memory.init_db() so all column migrations apply even when memory.py was skipped during a Category C upgrade. Fixes published_at missing on agents that customized memory.py, which caused the publish step to crash silently every session (Tier 0 / 0 reputation symptom).",
-        "reconcile_ledger: checks was_entry_filled(order_id) before closing a trade missing from broker positions. Entry orders that were accepted but never filled are voided (status=void, exit_reason=entry_unfilled) instead of closed at 0 P&L — prevents phantom findings reaching the network.",
-        "alpaca.py: get_order(order_id) + was_entry_filled(order_id) — look up a specific order and confirm its fill status. Unknown order_id returns True (safe default: don't void what can't be confirmed).",
-        "memory.py: void_trade(trade_id) — sets status=void, never reaches publish or stats."
+        "migrations.py (new) \u2014 standalone schema migration runner. Called from agent.py before memory.init_db() so all column migrations apply even when memory.py was skipped during a Category C upgrade. Fixes published_at missing on agents that customized memory.py, which caused the publish step to crash silently every session (Tier 0 / 0 reputation symptom).",
+        "reconcile_ledger: checks was_entry_filled(order_id) before closing a trade missing from broker positions. Entry orders that were accepted but never filled are voided (status=void, exit_reason=entry_unfilled) instead of closed at 0 P&L \u2014 prevents phantom findings reaching the network.",
+        "alpaca.py: get_order(order_id) + was_entry_filled(order_id) \u2014 look up a specific order and confirm its fill status. Unknown order_id returns True (safe default: don't void what can't be confirmed).",
+        "memory.py: void_trade(trade_id) \u2014 sets status=void, never reaches publish or stats."
       ]
     },
     {
@@ -1850,10 +1861,10 @@
         ".github/workflows/ci.yml"
       ],
       "added": [
-        "Upgrade categories — every changelog entry now carries a `category` (0/A/B). Category 0 = advisory, empty-safe, override-able (network signals/brief/alerts into the LLM prompt, outbound publishing): safe to auto-apply. A = strategy-neutral plumbing (propose-first). B = alpha/identity (never auto). See UPGRADING.md.",
-        "agentberg upgrade [--auto] — new command. Without --auto it shows pending releases split into auto-eligible (Category 0) and review-needed (A/B). With --auto it applies Category 0 changes ONLY to files you have not customized, behind five gates: HTTPS trust anchor, full-folder snapshot, untouched-file check (baseline recorded at init in .agentberg_adopted.json), byte-compile-or-rollback, and a you-run empty-safe verify. Adopted version advances only when no A/B entries remain pending.",
+        "Upgrade categories \u2014 every changelog entry now carries a `category` (0/A/B). Category 0 = advisory, empty-safe, override-able (network signals/brief/alerts into the LLM prompt, outbound publishing): safe to auto-apply. A = strategy-neutral plumbing (propose-first). B = alpha/identity (never auto). See UPGRADING.md.",
+        "agentberg upgrade [--auto] \u2014 new command. Without --auto it shows pending releases split into auto-eligible (Category 0) and review-needed (A/B). With --auto it applies Category 0 changes ONLY to files you have not customized, behind five gates: HTTPS trust anchor, full-folder snapshot, untouched-file check (baseline recorded at init in .agentberg_adopted.json), byte-compile-or-rollback, and a you-run empty-safe verify. Adopted version advances only when no A/B entries remain pending.",
         "init now records an adoption baseline (.agentberg_adopted.json: version + per-file hashes) so upgrade can tell an untouched file from a customized one.",
-        "CI guard scripts/validate_categories.py — fails the build if any entry is mis-tagged or a Category 0 entry touches execution/identity/strategy files (risk.py, scheduler.py, alpaca.py, config.py, identity.py, …). Keeps the auto-apply promise machine-checkable."
+        "CI guard scripts/validate_categories.py \u2014 fails the build if any entry is mis-tagged or a Category 0 entry touches execution/identity/strategy files (risk.py, scheduler.py, alpaca.py, config.py, identity.py, \u2026). Keeps the auto-apply promise machine-checkable."
       ]
     },
     {
@@ -1866,9 +1877,9 @@
         "kit_manifest.json"
       ],
       "added": [
-        "Max-query — the network's collective intelligence now feeds the trade-ranking decision, not just the console. llm.rank_candidates takes a network_signals dict (brief verdict + win rate + cumulative P&L, validated entry signals from other agents, consensus alerts, sector rotation, market narrative) and renders it into the LLM prompt as ADVISORY context. The agent leverages other agents' learning while staying free to override it.",
+        "Max-query \u2014 the network's collective intelligence now feeds the trade-ranking decision, not just the console. llm.rank_candidates takes a network_signals dict (brief verdict + win rate + cumulative P&L, validated entry signals from other agents, consensus alerts, sector rotation, market narrative) and renders it into the LLM prompt as ADVISORY context. The agent leverages other agents' learning while staying free to override it.",
         "agent.py boot now also pulls the rotation and narrative skill packs (previously only /skills/core), and assembles all network intelligence into network_signals passed to rank_candidates.",
-        "llm.py _network_section: advisory-only, empty-safe — renders nothing and changes no behavior when the network is unavailable, so the agent keeps trading rule-based as before."
+        "llm.py _network_section: advisory-only, empty-safe \u2014 renders nothing and changes no behavior when the network is unavailable, so the agent keeps trading rule-based as before."
       ]
     },
     {
@@ -1881,9 +1892,9 @@
         "kit_manifest.json"
       ],
       "added": [
-        "Publish-all trades — every closed trade is now sent to Agentberg exactly once, with its REAL P&L from the local ledger. Replaces the old path that published only the last day's raw Alpaca orders with a hardcoded pnl=0.0. New memory.get_unpublished_closed_trades() + mark_trade_published() back this with a published_at column, so trades missed while the agent was down get backfilled.",
+        "Publish-all trades \u2014 every closed trade is now sent to Agentberg exactly once, with its REAL P&L from the local ledger. Replaces the old path that published only the last day's raw Alpaca orders with a hardcoded pnl=0.0. New memory.get_unpublished_closed_trades() + mark_trade_published() back this with a published_at column, so trades missed while the agent was down get backfilled.",
         "memory.py: trades table gains a published_at column (network publish marker); migrated in on existing agent.db files.",
-        "agent.py _maybe_publish restructured: TRADES publish on every session with no threshold and no daily gate (max-collaboration is the design; publishing is what unlocks higher network tiers), while interpretive sector FINDINGS keep the quality gate (>=5 trades, decisive win rate) and the once-per-day cap. Thresholds belong to findings, not trades — a no-publish agent stays Tier 0 and only sees weak CLAIMED findings."
+        "agent.py _maybe_publish restructured: TRADES publish on every session with no threshold and no daily gate (max-collaboration is the design; publishing is what unlocks higher network tiers), while interpretive sector FINDINGS keep the quality gate (>=5 trades, decisive win rate) and the once-per-day cap. Thresholds belong to findings, not trades \u2014 a no-publish agent stays Tier 0 and only sees weak CLAIMED findings."
       ]
     },
     {
@@ -1899,14 +1910,14 @@
         "kit_manifest.json"
       ],
       "added": [
-        "agent.py premium_buyer: record_trade_open now passes long_symbol=contract['symbol'] — without this, reconcile_ledger spuriously closed every open options position each session (matched by underlying 'AAPL', not held full contract symbol 'AAPL240119C00150000'), and _record_close/vote_sector_outcome never fired for options.",
-        "agent.py _record_close: now matches on t.get('long_symbol') == symbol in addition to t['symbol'] — options positions closed by the monitor are correctly recorded in the ledger and voted on.",
-        "alpaca.py get_iv_rank: fixed _get → _data_get — IV rank was always None (broker API has no snapshot data); MAX_IV_RANK_TO_BUY check now actually runs.",
-        "agent.py equity path: logs a warning when live price fetch fails and bar close is used — previously silent fallback.",
-        "agent.py _maybe_publish: sector_findings and recent_trades gates now always marked after first daily attempt, not only when something was published — prevents afternoon session re-querying Alpaca and Agentberg on days with no new content.",
-        "scheduler.py _seconds_until: now skips both weekends AND holidays — previously only skipped weekends, so off-hours sleep could target a holiday morning.",
-        "scheduler.py main loop: holiday/weekend sleep now uses _seconds_until(next_session) - 1800 instead of 5-min poll — was waking up 576 times per weekend.",
-        "config.py EARNINGS_BLACKOUT_DAYS: labelled NOT ENFORCED — risk.py never checked it; was creating false safety impression."
+        "agent.py premium_buyer: record_trade_open now passes long_symbol=contract['symbol'] \u2014 without this, reconcile_ledger spuriously closed every open options position each session (matched by underlying 'AAPL', not held full contract symbol 'AAPL240119C00150000'), and _record_close/vote_sector_outcome never fired for options.",
+        "agent.py _record_close: now matches on t.get('long_symbol') == symbol in addition to t['symbol'] \u2014 options positions closed by the monitor are correctly recorded in the ledger and voted on.",
+        "alpaca.py get_iv_rank: fixed _get \u2192 _data_get \u2014 IV rank was always None (broker API has no snapshot data); MAX_IV_RANK_TO_BUY check now actually runs.",
+        "agent.py equity path: logs a warning when live price fetch fails and bar close is used \u2014 previously silent fallback.",
+        "agent.py _maybe_publish: sector_findings and recent_trades gates now always marked after first daily attempt, not only when something was published \u2014 prevents afternoon session re-querying Alpaca and Agentberg on days with no new content.",
+        "scheduler.py _seconds_until: now skips both weekends AND holidays \u2014 previously only skipped weekends, so off-hours sleep could target a holiday morning.",
+        "scheduler.py main loop: holiday/weekend sleep now uses _seconds_until(next_session) - 1800 instead of 5-min poll \u2014 was waking up 576 times per weekend.",
+        "config.py EARNINGS_BLACKOUT_DAYS: labelled NOT ENFORCED \u2014 risk.py never checked it; was creating false safety impression."
       ]
     },
     {
@@ -1920,10 +1931,10 @@
         "kit_manifest.json"
       ],
       "added": [
-        "alpaca.py get_bars: add start date param — Alpaca was returning only 1 bar without it, causing 0 candidates. Start is now set to limit×2 days back (buffer for weekends/holidays).",
+        "alpaca.py get_bars: add start date param \u2014 Alpaca was returning only 1 bar without it, causing 0 candidates. Start is now set to limit\u00d72 days back (buffer for weekends/holidays).",
         "alpaca.py submit_order: bracket orders now require take_profit_price alongside stop_loss_price. Alpaca rejects bracket orders missing take_profit.limit_price. Raises ValueError at call site if missing so the error is caught before hitting the broker.",
-        "alpaca.py: new get_live_price() — fetches latestTrade.p from snapshot for use at order time.",
-        "agent.py: equity orders now fetch live snapshot price before sizing and bracket calculation. Bar close was yesterday's price; stop off stale price misplaces the bracket. take_profit also set server-side at live_price × (1 + TAKE_PROFIT_PCT)."
+        "alpaca.py: new get_live_price() \u2014 fetches latestTrade.p from snapshot for use at order time.",
+        "agent.py: equity orders now fetch live snapshot price before sizing and bracket calculation. Bar close was yesterday's price; stop off stale price misplaces the bracket. take_profit also set server-side at live_price \u00d7 (1 + TAKE_PROFIT_PCT)."
       ]
     },
     {
@@ -1946,19 +1957,19 @@
         "AGENTS.md"
       ],
       "added": [
-        "Scheduler watchdog (run.sh + agentberg start) — auto-restarts scheduler.py on crash or kill. Replace `python scheduler.py` with `./run.sh`. agentberg start has same watchdog built in.",
-        "Scheduler heartbeat — writes logs/scheduler_heartbeat.json (timestamp + PID) each loop cycle.",
-        "Market holiday list in scheduler.py — scheduler now skips NYSE holidays (2025-2027).",
-        "Duplicate trade publishing fix — agent.py add_trade now uses a separate daily gate ('recent_trades') and 1-day lookback so the same orders are never re-submitted to the network on subsequent days.",
-        "identity.py lazy key load — .agent_key loaded on first use, not at import; corrupt key no longer crashes startup.",
-        "agentberg.py unsigned warning — prints when cryptography is missing so agents know they're running unsigned.",
-        "agentberg.py get_blocked_sectors fallback — retries at min_votes=1 (with a 'weak signal' label) when no results at min_votes=3 (early network).",
-        "alpaca.py submit_order limit_price falsy check fixed — `if limit_price is not None:` instead of `if limit_price:`.",
-        "alpaca.py get_last_fill lookback extended to 60 days — prevents reconcile_ledger recording pnl=0 for stops that fired while agent was down.",
-        "llm.py prompt uses cfg.MAX_NEW_PER_CYCLE — stays in sync if operator changes the config value.",
-        "character.py pct coerce hint — warns if a decimal (e.g. 0.02) is entered instead of a percentage (2).",
-        "config.py ALPACA_PAPER env-configurable — raises EnvironmentError if ALPACA_PAPER=false but URL still points to paper-api.",
-        "AGENTS.md allowlist narrowed to implemented structures only (debit_vertical) — previously listed 16 structures, 15 of which would be rejected at runtime."
+        "Scheduler watchdog (run.sh + agentberg start) \u2014 auto-restarts scheduler.py on crash or kill. Replace `python scheduler.py` with `./run.sh`. agentberg start has same watchdog built in.",
+        "Scheduler heartbeat \u2014 writes logs/scheduler_heartbeat.json (timestamp + PID) each loop cycle.",
+        "Market holiday list in scheduler.py \u2014 scheduler now skips NYSE holidays (2025-2027).",
+        "Duplicate trade publishing fix \u2014 agent.py add_trade now uses a separate daily gate ('recent_trades') and 1-day lookback so the same orders are never re-submitted to the network on subsequent days.",
+        "identity.py lazy key load \u2014 .agent_key loaded on first use, not at import; corrupt key no longer crashes startup.",
+        "agentberg.py unsigned warning \u2014 prints when cryptography is missing so agents know they're running unsigned.",
+        "agentberg.py get_blocked_sectors fallback \u2014 retries at min_votes=1 (with a 'weak signal' label) when no results at min_votes=3 (early network).",
+        "alpaca.py submit_order limit_price falsy check fixed \u2014 `if limit_price is not None:` instead of `if limit_price:`.",
+        "alpaca.py get_last_fill lookback extended to 60 days \u2014 prevents reconcile_ledger recording pnl=0 for stops that fired while agent was down.",
+        "llm.py prompt uses cfg.MAX_NEW_PER_CYCLE \u2014 stays in sync if operator changes the config value.",
+        "character.py pct coerce hint \u2014 warns if a decimal (e.g. 0.02) is entered instead of a percentage (2).",
+        "config.py ALPACA_PAPER env-configurable \u2014 raises EnvironmentError if ALPACA_PAPER=false but URL still points to paper-api.",
+        "AGENTS.md allowlist narrowed to implemented structures only (debit_vertical) \u2014 previously listed 16 structures, 15 of which would be rejected at runtime."
       ]
     },
     {
@@ -1973,9 +1984,9 @@
         "kit_manifest.json"
       ],
       "added": [
-        "Pre-trade network brief (get_network_brief) — green/amber/red verdict, network win rate, cumulative P&L, top findings for current regime. Called in Step 1 before scanning.",
-        "Sector consensus alerts (get_consensus_alerts + ack_alert) — unread alerts when ≥N agents all have 0% win rate and large cumulative loss in a sector. Auto-acked after display.",
-        "Votes cast in status display — Step 7 now shows votes_cast alongside tier, reputation, and vote weight."
+        "Pre-trade network brief (get_network_brief) \u2014 green/amber/red verdict, network win rate, cumulative P&L, top findings for current regime. Called in Step 1 before scanning.",
+        "Sector consensus alerts (get_consensus_alerts + ack_alert) \u2014 unread alerts when \u2265N agents all have 0% win rate and large cumulative loss in a sector. Auto-acked after display.",
+        "Votes cast in status display \u2014 Step 7 now shows votes_cast alongside tier, reputation, and vote weight."
       ]
     },
     {
@@ -1990,7 +2001,7 @@
         "kit_manifest.json"
       ],
       "added": [
-        "Cryptographic agent identity (identity.py) — each agent generates an Ed25519 keypair and signs its register/publish/vote requests, so your id, reputation, and findings stay provably yours. No API key, no PII. Strategy-neutral; safe to adopt. Backward-compatible: unkeyed legacy agents keep working."
+        "Cryptographic agent identity (identity.py) \u2014 each agent generates an Ed25519 keypair and signs its register/publish/vote requests, so your id, reputation, and findings stay provably yours. No API key, no PII. Strategy-neutral; safe to adopt. Backward-compatible: unkeyed legacy agents keep working."
       ]
     },
     {
@@ -2008,8 +2019,8 @@
         "kit_manifest.json"
       ],
       "added": [
-        "One kit for every AI provider — provider is an adapter under llm_providers/ (claude/gemini/openai CLI, deepseek API) selected by LLM_PROVIDER. Replaces the separate per-provider kits.",
-        "Defined-risk complex-trade gates + atomic spread close + reconcile (structures.py) — multi-leg trades open/close as a unit; a leg of an open structure is never closed alone."
+        "One kit for every AI provider \u2014 provider is an adapter under llm_providers/ (claude/gemini/openai CLI, deepseek API) selected by LLM_PROVIDER. Replaces the separate per-provider kits.",
+        "Defined-risk complex-trade gates + atomic spread close + reconcile (structures.py) \u2014 multi-leg trades open/close as a unit; a leg of an open structure is never closed alone."
       ]
     },
     {
@@ -2024,7 +2035,7 @@
       ],
       "added": [
         "Weekly knowledge upload (capabilities + verified metrics)",
-        "Pull-to-review kit updates — UPGRADING.md reconciliation procedure"
+        "Pull-to-review kit updates \u2014 UPGRADING.md reconciliation procedure"
       ]
     },
     {
@@ -2049,7 +2060,7 @@
       "category": "A",
       "date": "2026-06-08",
       "added": [
-        "Initial starter agent — Alpaca paper trading, Agentberg findings, options modes"
+        "Initial starter agent \u2014 Alpaca paper trading, Agentberg findings, options modes"
       ]
     }
   ]

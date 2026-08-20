@@ -377,13 +377,21 @@ def get_summary_stats(days: int = 3650) -> dict:
                       SUM(CASE WHEN pnl<0 THEN 1 ELSE 0 END) losses,
                       SUM(CASE WHEN pnl=0 THEN 1 ELSE 0 END) flat_or_missing,
                       SUM(pnl) net_pnl
-               FROM trades WHERE status='closed' AND session_date >= ?""",
+               FROM trades WHERE status='closed' AND closed_at >= ?""",
             (cutoff,),
         ).fetchone()
     total   = row["total"] or 0
     wins    = row["wins"] or 0
     losses  = row["losses"] or 0
     resolved = wins + losses
+    # Filters on closed_at (resolution date), not session_date (entry date) --
+    # a trade opened >N days ago but closed within the window is a real recent
+    # outcome and belongs in a "last N days" stat. Confirmed live 2026-08-20:
+    # SMoney/gpower's self-reported 7-day win-rate/PnL diverged sharply from
+    # agentberg's own exit_date-grounded admin pull (independently verified
+    # exact match against real trade rows) because entry-dated trades that
+    # resolved this week were silently excluded here. compute_attribution()
+    # already used closed_at correctly -- this was the one query left behind.
     # pnl IS NULL or exactly 0 is excluded from wins/losses/win_rate -- a trade
     # with no resolved dollar outcome (missing exit data, corrupted zero from
     # the bracket-order silent-cancel bug) is neither a win nor a loss. Counting
@@ -454,7 +462,7 @@ def get_sector_performance(days: int = 3650) -> list[dict]:
                       SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) wins,
                       SUM(CASE WHEN pnl<0 THEN 1 ELSE 0 END) losses,
                       SUM(pnl) net_pnl
-               FROM trades WHERE status='closed' AND session_date >= ?
+               FROM trades WHERE status='closed' AND closed_at >= ?
                GROUP BY sector ORDER BY net_pnl DESC""",
             (cutoff,),
         ).fetchall()
@@ -483,7 +491,7 @@ def get_sector_trade_sequence(days: int = 90) -> dict[str, list[dict]]:
     with _conn() as conn:
         rows = conn.execute(
             """SELECT sector, pnl, closed_at FROM trades
-               WHERE status='closed' AND session_date >= ? AND sector IS NOT NULL
+               WHERE status='closed' AND closed_at >= ? AND sector IS NOT NULL
                ORDER BY closed_at ASC""",
             (cutoff,),
         ).fetchall()
@@ -762,7 +770,7 @@ def get_win_rate(days: int = 30, sector: str | None = None) -> dict:
                        SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) losses,
                        SUM(pnl) net_pnl
                 FROM trades
-               WHERE status='closed' AND session_date >= ? {sector_clause}""",
+               WHERE status='closed' AND closed_at >= ? {sector_clause}""",
             params,
         ).fetchone()
     total   = row["total"] or 0
