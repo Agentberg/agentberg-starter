@@ -1,7 +1,30 @@
 {
-  "version": "2.11.36",
-  "released": "2026-08-17",
+  "version": "2.11.38",
+  "released": "2026-08-20",
   "changelog": [
+    {
+      "version": "2.11.38",
+      "category": "0",
+      "date": "2026-08-20",
+      "files": [
+        "alpaca.py"
+      ],
+      "fixed": [
+        "close_position() issued a bare DELETE /v2/positions/{symbol} with no cancel-resting-orders step first. A resting bracket sibling order (e.g. the take-profit leg when the stop-loss side is what's firing this close) holds the shares as qty_available=0 even though the position's own qty is still nonzero -- Alpaca 403s the close with 'insufficient qty available for order' and the position never actually closes. This is the root cause of the fleet-wide STOP_LOSS_CLOSE_FAILURE support cases (SMoney/gpower/sigmaforge-8889, 7 cases 2026-07-09 through 2026-07-20, previously un-root-caused -- see claude-memory/bug_stop_loss_close_failure_403_cross_fleet.md) and hit all three of check_positions()'s close paths (flat stop-loss/take-profit, trailing-stop reactive fallback, option DTE exit) since all three route through this one function. Confirmed live 2026-08-20 (jeeboo/KO, hand-closed the exact same way -- cancel the resting order, then close succeeds). Fix: close_position() now cancels any open orders on the symbol first (added get_open_orders()/cancel_order() helpers), then closes. Also fixed _delete() unconditionally calling r.json() -- Alpaca's order-cancel DELETE returns 204 No Content (empty body), which raised a JSONDecodeError on its own success; now returns {} when the response body is empty."
+      ]
+    },
+    {
+      "version": "2.11.37",
+      "category": "0",
+      "date": "2026-08-20",
+      "files": [
+        "alpaca.py",
+        "agent.py"
+      ],
+      "fixed": [
+        "reconcile_ledger()'s fallback fill-matcher (used when a trade has no bracket leg order-ids on record) could hand the SAME real exit fill to more than one local trade row on the same symbol. get_last_fill() only filtered by symbol+side+'filled after this row's own entry time' -- when a symbol had two non-overlapping round trips (an earlier lot fully closed, then a later lot opened whose own entry predates the earlier lot's real exit fill timestamp), the later lot's reconcile could match the earlier lot's already-consumed exit fill, fabricating a bogus exit_price/pnl built from someone else's qty and price. Confirmed live 2026-08-20 on jeeboo/KO: a lot opened 08-18 13:12 (570sh @ 88.87, still genuinely held) got closed locally with exit_price=88.74/pnl=-259.16 -- the real 08-18 17:17 exit fill (782sh @ 88.74) that had already, correctly, closed a SEPARATE earlier lot. Never synced to the server (no network_trade_id), so no corrupted data reached the network, but the phantom-closed row silently blocked the real close (a manual sell 570sh @ 91.14, +1293.90 real gain) from ever completing the network close-loop. Fixed by threading exclude_ids through get_last_fill() -- reconcile_ledger() now tracks exit order ids already claimed by a sibling row in the same pass and refuses to reuse them, leaving a trade open for retry next session rather than guessing."
+      ]
+    },
     {
       "version": "2.11.36",
       "category": "0",

@@ -128,7 +128,11 @@ class AlpacaClient:
         with httpx.Client(timeout=10) as c:
             r = c.delete(f"{self._base}{path}", headers=self._headers)
             r.raise_for_status()
-            return r.json()
+            # Order cancellation returns 204 No Content (empty body) -- position
+            # close returns 200 with the new closing order as JSON. Calling
+            # r.json() unconditionally on a 204 raises a JSONDecodeError, so
+            # cancel calls through this helper must not crash on their own success.
+            return r.json() if r.content else {}
 
     def _patch(self, path: str, payload: dict) -> dict:
         with httpx.Client(timeout=10) as c:
@@ -152,7 +156,32 @@ class AlpacaClient:
     def get_option_positions(self) -> list:
         return [p for p in self.get_positions() if p.get("asset_class") == "us_option"]
 
+    def get_open_orders(self, symbol: str) -> list:
+        return self._get("/v2/orders", params={"status": "open", "symbols": symbol})
+
+    def cancel_order(self, order_id: str) -> dict:
+        return self._delete(f"/v2/orders/{order_id}")
+
     def close_position(self, symbol: str) -> dict:
+        """Close a position outright (stop-loss, take-profit, DTE exit, trailing
+        stop). A resting bracket sibling order (the OTHER leg of the same
+        bracket, e.g. the take-profit order when a stop fires this call
+        instead) holds the shares as `qty_available: 0` even though the
+        position itself still shows the full qty -- Alpaca then 403s this
+        DELETE with "insufficient qty available for order" and the position
+        never actually closes. Confirmed live 2026-08-20 (jeeboo/KO, hand-
+        closed the same way) and is the root cause of the fleet-wide
+        STOP_LOSS_CLOSE_FAILURE support cases (SMoney/gpower/sigmaforge-8889,
+        7 cases 2026-07-09 through 2026-07-20, previously un-root-caused).
+        Cancel any resting orders on the symbol first so the shares are free
+        before asking Alpaca to sell them."""
+        for order in self.get_open_orders(symbol):
+            oid = order.get("id")
+            if oid:
+                try:
+                    self.cancel_order(oid)
+                except Exception:
+                    pass  # best-effort -- the close attempt below still tells the real story
         return self._delete(f"/v2/positions/{symbol}")
 
     # ── Market data ────────────────────────────────────────────────────────────
@@ -523,7 +552,7 @@ class AlpacaClient:
         return order.get("status") in self._TERMINAL_UNFILLED_STATUSES
 
     def get_last_fill(self, symbol: str, side: str | None = None, days: int = 60,
-                       after: str | None = None) -> dict | None:
+                       after: str | None = None, exclude_ids: set[str] | None = None) -> dict | None:
         """
         Most recent filled order for a symbol (optionally a given side), newest first.
         Used to reconcile a position that closed server-side (stop fired while app was
@@ -533,6 +562,17 @@ class AlpacaClient:
         point -- normally the trade's own entry time. Without it, this only matches by
         symbol+side, so a later, unrelated re-entry on the same symbol can be handed
         back as "the" exit fill for a trade it has nothing to do with.
+
+        `exclude_ids`: order ids already claimed as the exit fill for a sibling local
+        trade row on this same symbol during this reconcile pass. Without this, two
+        scale-in lots on the same symbol (two local rows, same `after`-eligible window)
+        can both match the SAME real exit fill -- the earlier-opened lot's reconcile
+        correctly claims it, but a lot opened before that fill (even if entered later
+        than some OTHER still-open lot) has no way to know the fill was already
+        spoken for, and reports someone else's exit price/qty as its own. Confirmed
+        live 2026-08-20 on jeeboo/KO: a lot opened 13:12 wrongly matched the fill that
+        actually closed a separate lot opened 10:34 the same day, closing 08-17T (its
+        own genuinely-still-open position) with a fabricated exit_price and pnl.
         """
         window_start = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
         query_after = max(after[:10], window_start) if after else window_start
@@ -549,6 +589,8 @@ class AlpacaClient:
             if side and o.get("side") != side:
                 continue
             if after and o["filled_at"] < after:
+                continue
+            if exclude_ids and o.get("id") in exclude_ids:
                 continue
             return o
         return None

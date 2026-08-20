@@ -283,6 +283,8 @@ def reconcile_ledger():
         return
     held = _alpaca.get_position_symbols()
     reconciled = registered = voided = unreconciled = 0
+    claimed_exit_fill_ids = set()  # exit order ids already matched to a trade THIS pass --
+    # prevents two scale-in lots on the same symbol from both claiming one real exit fill
     for t in open_trades:
         legs = [s for s in (t.get("long_symbol"), t.get("short_symbol")) if s] or [t["symbol"]]
         order_id = t.get("order_id")
@@ -360,7 +362,7 @@ def reconcile_ledger():
             # hadn't been entered yet, so anchoring to opened_at rules out at least
             # that case.
             fill = _alpaca.get_last_fill(long_sym, side="buy" if is_short else "sell",
-                                         after=t.get("opened_at"))
+                                         after=t.get("opened_at"), exclude_ids=claimed_exit_fill_ids)
         qty  = t.get("qty") or 0
         if not fill or qty <= 0:
             # Broker confirms the position isn't held, but we can't find the real
@@ -370,6 +372,7 @@ def reconcile_ledger():
             # Leave it open locally; retry next session once the fill is findable.
             unreconciled += 1
             continue
+        claimed_exit_fill_ids.add(fill.get("id"))
         exit_price = float(fill.get("filled_avg_price") or 0)
         entry = t.get("entry_price") or 0
         mult  = t.get("multiplier") or 1

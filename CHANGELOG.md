@@ -5,6 +5,16 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.11.38 — 2026-08-20
+
+*Files:* alpaca.py
+
+
+## v2.11.37 — 2026-08-20
+
+*Files:* alpaca.py, agent.py
+
+
 ## v2.11.36 — 2026-08-17
 
 *Files:* interconnect.py, llm.py
