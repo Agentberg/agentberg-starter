@@ -1,7 +1,18 @@
 {
-  "version": "2.11.39",
-  "released": "2026-08-20",
+  "version": "2.11.40",
+  "released": "2026-08-22",
   "changelog": [
+    {
+      "version": "2.11.40",
+      "category": "0",
+      "date": "2026-08-22",
+      "files": [
+        "scheduler.py"
+      ],
+      "fixed": [
+        "Docstring's documented 'Background' invocation (nohup python scheduler.py >> logs/scheduler.log 2>&1 &) redirected stdout/stderr into the exact same file logging.basicConfig()'s own FileHandler already writes to -- every line doubled silently for the life of the process, since basicConfig()'s StreamHandler (stdout/stderr) and FileHandler (explicit path) both landed on the same inode. Confirmed live via lsof on 2/2 home-fleet agents checked (2026-08-22 comms review): SMoney (PID 82103) and Gpower (PID 82195) each had fd 1/2/3 all pointed at their own logs/scheduler.log, doubling roughly 48k real events into ~96k+ log lines apiece, dating back to each file's first-ever entry. Not a functional bug (heartbeats, LLM calls, and postcar trigger dispatch all genuinely fired once -- verified against postcar's own semantic-dedup outcomes in the trigger log) but actively misleading for anyone reading these logs to diagnose behavior, this review included. Fixed the documented background-run example to redirect elsewhere (logs/nohup.log) instead of double-writing into scheduler.log, and documented why. Does not fix already-running processes with stdio already misrouted -- those need a clean restart via run.sh to pick up single-writer fds again."
+      ]
+    },
     {
       "version": "2.11.39",
       "category": "0",

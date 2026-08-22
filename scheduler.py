@@ -10,7 +10,19 @@ Run:
   python scheduler.py
 
 Background:
-  nohup python scheduler.py >> logs/scheduler.log 2>&1 &
+  nohup python scheduler.py >> logs/nohup.log 2>&1 &
+
+Do NOT redirect into logs/scheduler.log -- logging.basicConfig() below already
+writes every line there via its own FileHandler, deterministically, regardless
+of how this process's stdio is plumbed (see interconnect.py's _log comment).
+Its StreamHandler duplicates the same lines to stdout/stderr for foreground
+visibility; redirecting stdout/stderr into logs/scheduler.log as well makes
+every single line append twice, silently, for the life of the process.
+Confirmed live on 2/2 home-fleet agents checked (2026-08-22 comms review):
+both SMoney and Gpower's running scheduler.py had fd 1/2/3 all pointed at the
+same logs/scheduler.log inode, doubling ~48k real events into ~96k log lines
+each -- this exact "Background" line is the likely source, going back to each
+file's first-ever log entry.
 """
 
 from __future__ import annotations
