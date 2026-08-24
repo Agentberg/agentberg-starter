@@ -1,7 +1,18 @@
 {
-  "version": "2.11.41",
+  "version": "2.11.42",
   "released": "2026-08-24",
   "changelog": [
+    {
+      "version": "2.11.42",
+      "category": "0",
+      "date": "2026-08-24",
+      "files": [
+        "agent.py"
+      ],
+      "fixed": [
+        "_record_close()'s fallback exit-price/pnl path (used whenever the broker close order hasn't reported filled_avg_price yet, which is effectively always -- Alpaca's DELETE /v2/positions/{symbol} returns the order at submit) applied `sign` to pnl_pct itself instead of to the price-direction estimate. pnl_pct (Alpaca's unrealized_plpc) is already P&L-signed for both longs and shorts -- confirmed live 2026-08-24 against gpower's own broker fills: two short stop_loss closes (HOOD, PLTR; network_trade_id 3734dcf1... / 9c757201...) recorded pnl=+220.11 / +177.65 through this path while the real fills (recovered by the later EOD broker reconcile) were -84.30 / -178.25 -- genuine losses recorded on both the local row and the Agentberg server as gains, and voted on the network as wins (_vote_outcome runs on the wrong pnl_dollars before any later reconcile can fix it). Only short_stock/short-leg trades are affected (sign=+1 for longs makes the multiplication a no-op); the pre-existing tests/test_pnl_direction.py already specified the correct formula in isolation but never called the real function, so the regression (introduced 2026-07-23, v2.11.18-19, under a since-invalidated assumption about Alpaca's plpc sign convention for shorts) shipped silently for a month. `sign` now applies only to the exit_price fallback estimate (price and P&L move opposite ways for a short); pnl_pct/pnl_dollars use the already-correct value directly. Known follow-up, not fixed here: the EOD reconcile's local correction (memory.correct_trade_exit) never clears network_close_synced_at, and the server's close_trade() has an idempotency guard that would discard a resync attempt anyway -- so trades already corrupted by this bug stay wrong on the server/network-vote side even after local reconciliation. Flagged separately for a dedicated fix + a decision on retroactive repair of historical short closes."
+      ]
+    },
     {
       "version": "2.11.41",
       "category": "0",

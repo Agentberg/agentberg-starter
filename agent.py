@@ -2110,22 +2110,27 @@ def _record_close(symbol: str, reason: str, pnl_pct: float, close_order: dict | 
     qty = trade.get("qty") or 0
     mult = trade.get("multiplier") or 1
     # qty is always stored positive; direction lives in trade_type. pnl_pct (the
-    # incoming param) is Alpaca's raw unrealized_plpc -- a RAW price-change percent
-    # (positive when price rose), not P&L-direction-adjusted. Verified live 2026-07-23:
-    # gpower's short COP close (entry 115.68 -> exit 118.80, price up, a real loss)
-    # stored pnl_pct=+2.70% -- Alpaca's plpc for shorts is unrealized_pl/cost_basis,
-    # and cost_basis is reported negative for shorts, so a negative (losing)
-    # unrealized_pl divided by a negative cost_basis comes out positive. The dollar
-    # pnl below already applies `sign` and was correct; pnl_pct was stored raw and
-    # came out backwards for every short close through this path.
+    # incoming param) is Alpaca's raw unrealized_plpc, which is already P&L-signed
+    # for both longs and shorts (negative = losing money) -- confirmed live
+    # 2026-08-24 against gpower's own broker fills: HOOD and PLTR short stop_loss
+    # closes (network_trade_id 3734dcf1... / 9c757201...) recorded pnl=+220.11 /
+    # +177.65 through this path while the real fills (from the later EOD broker
+    # reconcile) were -84.30 / -178.25 -- genuine losses recorded as gains. The
+    # `sign` multiplication added here 2026-07-23 (v2.11.18-19) assumed Alpaca's
+    # plpc was raw price-change (unsigned for P&L), which is no longer true (or
+    # was misdiagnosed) -- it was double-flipping an already-correct value.
+    # test_pnl_direction.py::test_short_fallback_exit_price_reconstruction already
+    # specifies the correct formula below; this path had regressed from it.
+    # `sign` is still needed to convert P&L% into a PRICE-direction estimate for
+    # the exit_price fallback (price and P&L move opposite ways for a short) --
+    # just not for pnl_pct/pnl_dollars, which are already in P&L space.
     sign = -1 if "short" in (trade.get("trade_type") or "") else 1
-    signed_pct = pnl_pct * sign
-    # Use Alpaca's actual fill price from the close order; fall back to computing from
-    # entry + the raw (unsigned) price-change pct -- exit_price tracks price direction
-    # directly, so it must NOT have `sign` applied (sign only matters for P&L, not price).
+    signed_pct = pnl_pct
+    # Use Alpaca's actual fill price from the close order; fall back to estimating
+    # from entry + the P&L pct converted to a price-direction pct via `sign`.
     exit_price = float(close_order.get("filled_avg_price") or 0) if close_order else 0.0
     if not exit_price and entry_price:
-        exit_price = round(entry_price * (1 + pnl_pct), 4)
+        exit_price = round(entry_price * (1 + pnl_pct * sign), 4)
     pnl_dollars = (exit_price - entry_price) * qty * mult * sign if (exit_price and entry_price) else entry_price * qty * mult * signed_pct
     memory.record_trade_close(
         trade["id"], exit_price=exit_price, pnl=pnl_dollars, pnl_pct=signed_pct, exit_reason=reason,
