@@ -1,7 +1,20 @@
 {
-  "version": "2.11.42",
+  "version": "2.11.43",
   "released": "2026-08-24",
   "changelog": [
+    {
+      "version": "2.11.43",
+      "category": "B",
+      "date": "2026-08-24",
+      "files": [
+        "trailing.py",
+        "agent.py",
+        "risk_params.py"
+      ],
+      "fixed": [
+        "Trailing-stop trail distance switched from ATR-scaled to fixed-$100 (TRAIL_FIXED_DOLLARS, risk_params.py), always-on from entry with no activation delay, on the primary broker-side stop-PATCH path in _trail_stop(). 2026-08-24 backtest across 289 home-fleet closed trades (same window used for the LOW-vol sizing finding) found the ATR trail's SETTLED performance (trades that actually stopped out, not blended with unresolved mark-to-market snapshots) was -$19,285.14, worse than a flat $100 fixed trail's +$10,202.51 on the identical trades/window -- see agentberg memory finding_trailing_stop_policy_backtest_2026-08-24.md. trail_dollars is a fixed $ amount of TOTAL position drawdown tolerated from the high-water mark divided by share count, not a flat price-space distance, so position size doesn't change the $ risk budget. One ~2-month window, not yet a validated forward rule -- revisit if live performance diverges. The reactive %-based fallback path (fires only when the real broker-side PATCH is unavailable) is intentionally left unchanged, out of scope for this change. Ported identically to jeeboo/jeeboo-short/jeeboo-insider/jeeboo-chop's own strategy/sizing.py the same day."
+      ]
+    },
     {
       "version": "2.11.42",
       "category": "0",

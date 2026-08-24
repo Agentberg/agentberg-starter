@@ -38,51 +38,31 @@ def compute_atr(bars: list[dict], period: int = 14) -> float | None:
     return sum(trs[-period:]) / period
 
 
-def trailing_stop_price(entry_price: float, hwm: float, entry_atr: float | None,
-                         is_short: bool = False,
-                         k_activate: float = 1.5, k_trail: float = 2.0,
-                         fallback_activate_pct: float = 0.04, fallback_trail_pct: float = 0.02,
+def trailing_stop_price(entry_price: float, hwm: float, shares: float,
+                         is_short: bool = False, trail_dollars: float = 100.0,
                          ) -> float | None:
-    """ATR-scaled trailing stop: a flat % trail is inside normal daily noise for
-    a high-ATR name and stops out on ordinary chop (confirmed live in jeeboo,
-    2026-08-12: RTX/DIS/NDSN all stopped out prematurely under a flat 2% trail,
-    giving back $518 combined vs. holding to the actual exit).
+    """Fixed-$ trailing stop, always-on from entry (no activation delay) — replaces
+    the prior ATR-scaled version (ported from jeeboo's strategy/sizing.py, same
+    2026-08-24 change). Backtest across 289 home-fleet closed trades found the
+    ATR trail's SETTLED (actually-stopped-out) performance was -$19,285.14, worse
+    than a flat $100 fixed trail's +$10,202.51 on the same trades/window (see
+    agentberg memory finding_trailing_stop_policy_backtest_2026-08-24.md — one
+    ~2-month window, not a validated forward rule).
 
     `hwm` is the FAVORABLE extreme since entry regardless of direction — highest
-    price for a long, lowest for a short (caller tracks this; see agent.py). The
-    `is_short` branch mirrors every comparison: jeeboo's original version (this
-    is ported from) is long-only by design (its README: "Equity-only,
-    long-only"), so it never needed this -- the kit trades both directions and
-    a naive port would compute a long-style floor-below-hwm stop for a short
-    position, which is backwards.
+    price for a long, lowest for a short (caller tracks this; see agent.py).
 
-    Returns None if not yet armed (hwm hasn't moved k_activate x ATR favorably
-    from entry). Once armed, ALWAYS floors/ceilings the stop at entry_price
-    (breakeven) — minig found live (OKTA, 2026-08-07) that k_trail(2.0) >
-    k_activate(1.5) means the naive `hwm -/+ k_trail*atr` can sit past
-    entry_price at the exact moment of arming, even though the position is
-    unambiguously in profit. A trail that arms below breakeven defeats the
-    point of arming it.
-
-    Falls back to fallback_activate_pct/fallback_trail_pct (plain % of entry,
-    not ATR) when entry_atr is unavailable — same degrade-gracefully pattern as
-    everywhere else in this kit when a data dependency is missing.
-
-    Caller must apply the "only ever tighten, never loosen" check against the
-    currently-live stop before replacing it — this function is pure, it just
-    computes what the stop *should* be given the current entry/HWM/ATR."""
-    if entry_price <= 0 or hwm <= 0:
+    trail_dollars is a fixed $ amount of TOTAL POSITION drawdown tolerated from
+    the high-water mark, divided by share count to get the per-share trail
+    distance — so a $50k position and a $3k position both get the same $100
+    give-back budget from their own peak, not the same price-per-share distance.
+    Day-1 stop (before any favorable move) uses the same formula as the ongoing
+    trail — no separate activation gate, matches exactly what was backtested.
+    Ratchets toward entry only (caller applies "only ever tighten, never loosen"
+    against the currently-live stop, same as before)."""
+    if entry_price <= 0 or hwm <= 0 or shares <= 0:
         return None
-    favorable_move = (entry_price - hwm) if is_short else (hwm - entry_price)
-    if entry_atr and entry_atr > 0:
-        armed = favorable_move >= k_activate * entry_atr
-        if not armed:
-            return None
-        raw = hwm + k_trail * entry_atr if is_short else hwm - k_trail * entry_atr
-        return round(min(raw, entry_price) if is_short else max(raw, entry_price), 2)
-    # No ATR history — fall back to plain % of entry price, same shape.
-    armed = (favorable_move / entry_price) >= fallback_activate_pct
-    if not armed:
-        return None
-    raw = hwm * (1 + fallback_trail_pct) if is_short else hwm * (1 - fallback_trail_pct)
-    return round(min(raw, entry_price) if is_short else max(raw, entry_price), 2)
+    trail_per_share = trail_dollars / shares
+    day1 = entry_price + trail_per_share if is_short else entry_price - trail_per_share
+    trailed = hwm + trail_per_share if is_short else hwm - trail_per_share
+    return round(min(day1, trailed) if is_short else max(day1, trailed), 2)

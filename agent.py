@@ -1778,10 +1778,10 @@ def _trail_stop(trade: dict, pos: dict, current_price: float, is_equity: bool) -
 
     if stop_order_id:
         try:
-            entry_atr = trade.get("entry_atr")
+            shares = abs(float(trade.get("qty") or pos.get("qty") or 0))
             new_stop = trailing.trailing_stop_price(
-                entry_price, hwm, entry_atr, is_short=is_short,
-                fallback_activate_pct=trigger_pct, fallback_trail_pct=distance_pct,
+                entry_price, hwm, shares, is_short=is_short,
+                trail_dollars=cfg.TRAIL_FIXED_DOLLARS,
             )
             current_stop = trade.get("current_stop_price")
             if current_stop is None:
@@ -1805,6 +1805,9 @@ def _trail_stop(trade: dict, pos: dict, current_price: float, is_equity: bool) -
             # fall through to the reactive path below
 
     # ── Reactive fallback (no stop_order_id known, or the PATCH just failed) ───
+    # Still % of price (TRIGGER_PCT/DISTANCE_PCT), NOT converted to the primary
+    # path's fixed-$ model above (2026-08-24) — this only fires as a last resort
+    # when the real broker-side PATCH is unavailable, out of scope for that change.
     if favorable_move:
         memory.update_high_water_mark(trade["id"], hwm)
     unrealised_pnl_pct = float(pos.get("unrealized_plpc", 0))

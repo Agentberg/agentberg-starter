@@ -46,6 +46,17 @@ OPTION_STOP_LOSS_PCT:   float = 0.50   # exit option if down 50% of premium paid
 EQUITY_TAKE_PROFIT_PCT: float = 0.06   # exit equity at 6% gain — 1.5:1 reward:risk vs the 4% stop
 TAKE_PROFIT_PCT:        float = 1.00   # options: exit at 100% gain on premium (2x paid)
 
+# ── Trailing stop, equity broker-side path (fixed-$) ───────────────────────────
+# Fixed-$ trail, always-on from entry — replaces the ATR-scaled trail on the
+# primary (real broker-order PATCH) path in _trail_stop(). 2026-08-24 backtest
+# (289 home-fleet closed trades): ATR trail's settled (actually-stopped-out)
+# performance was -$19,285.14 vs fixed-$100's +$10,202.51 on the same
+# trades/window. See agentberg memory
+# finding_trailing_stop_policy_backtest_2026-08-24.md — one window, not a
+# validated forward rule. The reactive %-based fallback below is unchanged
+# (only fires when the broker-side PATCH itself is unavailable).
+TRAIL_FIXED_DOLLARS: float = 100.0   # $ of position drawdown tolerated from HWM
+
 # ── Trailing stop (all instruments) ────────────────────────────────────────────
 # Once a position gains TRIGGER_PCT, the stop trails DISTANCE_PCT below the
 # highest price seen since entry. Locks in gains on reversals without capping upside.
