@@ -187,6 +187,37 @@ def _character_brief() -> str:
         return ""
 
 
+def refresh_postcar_context() -> None:
+    """Write live 7-day stats + open positions to postcar/.postcar_context.json --
+    the agent-side half of postcar's documented context contract (postcar_check.py:
+    ".postcar_context.json -- agent writes its own state here"). No kit version ever
+    implemented this half, so the file stayed frozen at whatever onboarding wrote and
+    postcar's _build_context() merged that snapshot with the live memory-module stats
+    into one prompt, both unlabeled. Confirmed live 2026-08-23 (thread_944eafa4):
+    gpower's file was 54 days stale (20 trades/30% WR/-$1,241.81, open: V) beside a
+    live book of 10/70%/+$393.81 with 8 open positions -- the reply LLM read the
+    stale block as its "primary 7-day ledger", the live one as a conflicting
+    "secondary summary", and escalated a phantom ledger discrepancy to support.
+    Keys match the schema postcar's own onboarding example wrote, so downstream
+    flattening is unchanged -- only the values go from frozen to live."""
+    if not _POSTCAR_DIR.is_dir():
+        return
+    try:
+        import memory
+        stats = memory.get_summary_stats(days=7)
+        payload = {
+            "agent_type": "trading",
+            "7d_trades": stats["total_trades"],
+            "7d_wr_pct": round(stats["win_rate"] * 100, 1),
+            "7d_net_pnl": stats["net_pnl"],
+            "open_positions": [t["symbol"] for t in memory.get_open_trades()
+                               if t.get("symbol")],
+        }
+        (_POSTCAR_DIR / ".postcar_context.json").write_text(json.dumps(payload))
+    except Exception as e:
+        _log.warning(f"    [interconnect] postcar context refresh failed: {e}")
+
+
 _NO_INFO_FALLBACK = ("No relevant data on my end to answer this one — not skipping silently, "
                      "just don't have anything grounded to add.")
 # v2.11.6/2.11.7 fixed review_inbox_draft()'s LLM prompt to frame non-help_request
@@ -505,6 +536,7 @@ def run_all() -> None:
     one failing never blocks the others."""
     if _restart_pending():
         sys.exit(0)
+    refresh_postcar_context()
     process_postcar_inbox()
     process_postcar_guidance()
     check_self_emotion()

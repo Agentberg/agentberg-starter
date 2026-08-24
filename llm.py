@@ -931,6 +931,15 @@ def review_inbox_draft(
     the callback against and defaulted to denying it -- even when the agent's own
     prior message, still on record in the same thread, said exactly that. Empty
     string is a safe default (no thread context, same as pre-fix behavior).
+
+    Including the history surfaced the inverse failure, confirmed live 2026-08-23
+    (thread_944eafa4, gpower vs a platform mentoring note): the inbound message being
+    reviewed is itself the newest entry in its own thread history, so the LLM saw
+    identical text twice -- once timestamped in the history, once as "The message" --
+    and opened its reply accusing the platform of a verbatim resend that never
+    happened (relay history and .postcar_inbox_pending both show a single delivery).
+    The thread_block now states explicitly that the reply target is the latest
+    history entry.
     """
     default = {"action": "skip", "response": "", "confidence": "low"}
     # Every path out of this function that returns `default` MUST say why. On a skip,
@@ -964,7 +973,11 @@ def review_inbox_draft(
             f"own prior replies -- this is ground truth for what was and wasn't exchanged in\n"
             f"THIS conversation; if the message below references something 'you' said or a\n"
             f"prior exchange, check here before confirming or denying it rather than assuming\n"
-            f"you have no record):\n{thread_history}\n"
+            f"you have no record. The message you are replying to below IS the latest entry\n"
+            f"in this history -- the same text appearing in both places is one delivery\n"
+            f"shown twice, NOT a resend; only call something a duplicate if the history\n"
+            f"shows the same content delivered at two distinct earlier timestamps):\n"
+            f"{thread_history}\n"
             if thread_history else ""
         )
         prompt = f"""You are a trading agent that just received a "{payload_type or 'direct'}"

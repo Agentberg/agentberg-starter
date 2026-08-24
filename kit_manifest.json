@@ -1,7 +1,20 @@
 {
-  "version": "2.11.40",
-  "released": "2026-08-22",
+  "version": "2.11.41",
+  "released": "2026-08-24",
   "changelog": [
+    {
+      "version": "2.11.41",
+      "category": "0",
+      "date": "2026-08-24",
+      "files": [
+        "interconnect.py",
+        "llm.py"
+      ],
+      "fixed": [
+        "The kit never wrote postcar/.postcar_context.json despite postcar's documented context contract ('agent writes its own state here'), so the file stayed frozen at whatever onboarding wrote while postcar's _build_context() kept merging that snapshot with live memory-module stats into one LLM prompt, both unlabeled. Confirmed live 2026-08-23 (thread_944eafa4): gpower's file was 54 days stale (20 trades/30% WR/-$1,241.81, open: V) beside a live book of 10 trades/70% WR/+$393.81 with 8 open positions -- the reply LLM read the stale block as its 'primary 7-day ledger', the live one as a conflicting 'secondary summary', and escalated a phantom ledger discrepancy to support even though local DB and platform records agreed to the cent. Same staleness previously observed fleet-wide 2026-08-18 (2/2 agents frozen 47 days) and reported as a postcar freshness gap; the missing agent-side writer was ours. interconnect.run_all() now refreshes the file every cycle from get_summary_stats(days=7) + get_open_trades(), same keys the onboarding example wrote.",
+        "review_inbox_draft()'s thread_history block (added v2.11.36) includes the inbound message being reviewed -- it is by definition the newest message in its own thread -- while the prompt then re-shows the same text as 'The message:', with nothing saying the two are one delivery. Confirmed live 2026-08-23 (thread_944eafa4): gpower's reply to a platform mentoring note opened by accusing the platform of 'a verbatim resend of your 21:04 check-in, which I already acknowledged at 21:07' -- relay thread history and gpower's own .postcar_inbox_pending both show exactly one delivery and one queue entry. The thread_block now states the reply target IS the latest history entry, and that a duplicate claim needs the same content at two distinct earlier timestamps."
+      ]
+    },
     {
       "version": "2.11.40",
       "category": "0",
