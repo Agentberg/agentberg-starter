@@ -493,6 +493,18 @@ def check_self_emotion() -> None:
         )
         if sent:
             reason = "sent"
+        elif not verdict.get("evidence"):
+            # report_trigger()'s own first check (postcar_check.py) -- silently False,
+            # no log of its own, same blind spot the capability branch below was added
+            # for on 2026-07-23.
+            reason = "dropped (missing evidence -- report_trigger() requires it for every trigger type)"
+        elif not verdict.get("message"):
+            # Same silent-False shape as the capability branch below, but for the
+            # OTHER field report_trigger() requires unconditionally (postcar_check.py
+            # checks message before branching to curiosity vs. fear/confusion) --
+            # curiosity only needs message, not capability, so it fell through to
+            # "dropped (dupe?)" with no way to tell a real dupe from a malformed verdict.
+            reason = "dropped (missing message -- report_trigger() requires it for every trigger type)"
         elif verdict["trigger"] != "curiosity" and not verdict.get("capability"):
             # report_trigger() silently returns False here with no log of its own
             # (postcar_check.py) -- confirmed 2026-07-23 this LLM-prompt/postcar-contract

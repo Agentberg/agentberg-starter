@@ -1,7 +1,18 @@
 {
-  "version": "2.11.43",
-  "released": "2026-08-24",
+  "version": "2.11.44",
+  "released": "2026-08-25",
   "changelog": [
+    {
+      "version": "2.11.44",
+      "category": "0",
+      "date": "2026-08-25",
+      "files": [
+        "interconnect.py"
+      ],
+      "fixed": [
+        "check_self_emotion()'s drop-reason diagnostic only distinguished a real dupe from 'missing capability' (added 2026-07-23 for fear/confusion), leaving report_trigger()'s two other silent-False cases -- missing evidence, missing message -- unlabeled and folded into 'dropped (dupe?)' for every trigger type, including curiosity (which never requires capability at all, so ALL of its drops fell into that one bucket). Found reviewing gpower's fleet comms: a 2026-08-25 curiosity trigger logged to .postcar_trigger_log.jsonl had no matching '[interconnect] reported trigger' line anywhere nearby in its run log, unlike the one other curiosity-drop instance in that log's full history (which did log 'dropped (dupe?)' right after a genuine '[postcar] semantic dupe' print) -- inconclusive on its own, but exposed that the existing diagnostic couldn't have told a real dupe from a malformed verdict (empty evidence/message) even if asked. Two new elif branches, checked in the same order report_trigger() itself checks them (evidence, then message, then capability), so 'dropped (dupe?)' is only ever printed when the verdict actually had everything report_trigger() requires."
+      ]
+    },
     {
       "version": "2.11.43",
       "category": "B",
