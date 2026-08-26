@@ -1779,9 +1779,11 @@ def _trail_stop(trade: dict, pos: dict, current_price: float, is_equity: bool) -
     if stop_order_id:
         try:
             shares = abs(float(trade.get("qty") or pos.get("qty") or 0))
-            new_stop = trailing.trailing_stop_price(
+            new_stop = trailing.tightening_trail_stop_price(
                 entry_price, hwm, shares, is_short=is_short,
-                trail_dollars=cfg.TRAIL_FIXED_DOLLARS,
+                giveback_start=cfg.TRAIL_GIVEBACK_START,
+                decay_per_dollar=cfg.TRAIL_GIVEBACK_DECAY,
+                floor_dollars=cfg.TRAIL_GIVEBACK_FLOOR,
             )
             current_stop = trade.get("current_stop_price")
             if current_stop is None:

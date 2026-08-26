@@ -56,6 +56,23 @@ TAKE_PROFIT_PCT:        float = 1.00   # options: exit at 100% gain on premium (
 # validated forward rule. The reactive %-based fallback below is unchanged
 # (only fires when the broker-side PATCH itself is unavailable).
 TRAIL_FIXED_DOLLARS: float = 100.0   # $ of position drawdown tolerated from HWM
+# Kept as the FLOOR for the profit-tightening trail below (TRAIL_GIVEBACK_FLOOR
+# reuses this exact value — the new trail is a strict generalization of this
+# one, identical once a trade is deep enough in profit).
+
+# 2026-08-26: replaces the flat trail above as the LIVE mechanism on the
+# primary (real broker-order PATCH) path (trailing.tightening_trail_stop_price(),
+# agent.py's _trail_stop()). $ giveback from HWM starts wide near breakeven
+# and decays to TRAIL_GIVEBACK_FLOOR (== TRAIL_FIXED_DOLLARS) as banked
+# profit grows — fixes the flat rule's failure mode of clipping trades near
+# breakeven on ordinary noise right after breakeven. Backtested long-only:
+# settled $9,089.95 vs flat-$100's $4,606.05 on the same 289-trade dataset —
+# see agentberg memory finding_tightening_trail_beats_fixed100_2026-08-26.md.
+# One ~2-month window, not a validated forward rule — revisit if forward
+# performance diverges. The reactive %-based fallback below is unchanged.
+TRAIL_GIVEBACK_START: float = 250.0   # $ giveback allowed right after breakeven
+TRAIL_GIVEBACK_DECAY: float = 0.3     # $ of giveback shed per $ of banked profit
+TRAIL_GIVEBACK_FLOOR: float = 100.0   # tightest the trail ever gets (== TRAIL_FIXED_DOLLARS)
 
 # ── Trailing stop (all instruments) ────────────────────────────────────────────
 # Once a position gains TRIGGER_PCT, the stop trails DISTANCE_PCT below the

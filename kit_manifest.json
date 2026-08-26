@@ -1,7 +1,20 @@
 {
-  "version": "2.11.44",
-  "released": "2026-08-25",
+  "version": "2.11.45",
+  "released": "2026-08-26",
   "changelog": [
+    {
+      "version": "2.11.45",
+      "category": "B",
+      "date": "2026-08-26",
+      "files": [
+        "trailing.py",
+        "agent.py",
+        "risk_params.py"
+      ],
+      "fixed": [
+        "Trailing-stop trail distance switched from flat-$100 (TRAIL_FIXED_DOLLARS) to a profit-tightening $ giveback (TRAIL_GIVEBACK_START=250/TRAIL_GIVEBACK_DECAY=0.3/TRAIL_GIVEBACK_FLOOR=100, risk_params.py) on the primary broker-side stop-PATCH path in _trail_stop(). Same always-on-from-entry, no-activation-delay, ratchets-toward-entry-only shape as the flat rule, but the $ giveback allowed from the high-water mark now shrinks continuously as banked profit grows instead of staying constant: giveback = clamp(giveback_start - decay_per_dollar * profit_dollars_at_hwm, floor_dollars, giveback_start). Day-1/loss-side stop stays flat at entry_price -/+ giveback_start/shares (profit_dollars is 0 whenever the position hasn't moved favorably past entry) -- unchanged property from the flat rule. floor_dollars is deliberately the same value as the old TRAIL_FIXED_DOLLARS (100.0): this is a strict generalization, identical to the old rule once a trade is deep enough in profit, wider only in the shallow-profit zone where the flat rule was clipping trades near breakeven on ordinary noise right after breakeven -- the exact failure mode found reviewing jeeboo-family's last 15 closed trades 2026-08-26 (12/15 were small losses near breakeven under the flat rule). Backtested long-only, no-lookahead 5-min bars, same 289-trade dataset as the 2026-08-24 fixed-$100 validation: settled $9,089.95 vs fixed-$100's $4,606.05 -- see agentberg memory finding_tightening_trail_beats_fixed100_2026-08-26.md. Short-side formula mirrors the existing is_short handling but was not itself separately backtested. One ~2-month window, not yet a validated forward rule -- revisit if live performance diverges. The reactive %-based fallback path (fires only when the real broker-side PATCH is unavailable) is unchanged, out of scope. Ported identically to jeeboo/jeeboo-short/jeeboo-insider/jeeboo-chop's own strategy/sizing.py and Hari's 4 Hari-Gen2-* clones the same day."
+      ]
+    },
     {
       "version": "2.11.44",
       "category": "0",
