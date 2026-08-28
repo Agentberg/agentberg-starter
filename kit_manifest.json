@@ -1,7 +1,19 @@
 {
-  "version": "2.11.45",
-  "released": "2026-08-26",
+  "version": "2.11.46",
+  "released": "2026-08-28",
   "changelog": [
+    {
+      "version": "2.11.46",
+      "category": "0",
+      "date": "2026-08-28",
+      "files": [
+        "agent.py",
+        "agentberg.py"
+      ],
+      "fixed": [
+        "eod_reconcile()'s entry/exit price corrections (broker-fill truth replacing the order-submit-time estimate used at open) only ever wrote to the local agent.db -- reconcile_ledger()'s network registration (open_trade()) can fire before eod_reconcile() runs and corrects the local ledger, and nothing afterward ever told the network about the correction, so admin-side entry_price/pnl_pct stayed stuck at the pre-fill estimate forever even after the local ledger was fixed. Confirmed live 2026-08-27/28 on SMoney: local agent.db had COF entry=$215.77 (broker-corrected) but admin API's /admin/agent/SMoney/data still showed entry=$217.91 days later, producing a mentoring check-in that read the trade's own pnl_pct wrong. Same shape as the already-flagged 2026-08-26 SMoney/gpower META entry_price mismatch. Added agentberg.py::AgentbergClient.correct_trade(), called from both branches of eod_reconcile() whenever the corrected trade already has a network_trade_id -- pushes the broker-true entry_price (entry-side correction) or exit_price+pnl (exit-side correction) to the new server-side PUT /trades/{id}/correct endpoint (agentberg main.py/models.py/database.py, same commit, server-recomputes pnl_pct so the fraction convention can't drift). Server endpoint is agent-ownership-scoped, not admin-gated, since this needs to run unattended every session."
+      ]
+    },
     {
       "version": "2.11.45",
       "category": "B",

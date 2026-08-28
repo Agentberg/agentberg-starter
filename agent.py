@@ -486,6 +486,14 @@ def eod_reconcile(days: int = 30):
                     print(f"[eod] {t['symbol']}: corrected entry ${local_price:.2f}×{local_qty} "
                           f"→ ${broker_price:.2f}×{broker_qty} (broker truth)")
                     entry_fixed += 1
+                    # Registration (reconcile_ledger()'s open_trade() call) can fire
+                    # before this correction runs, sending the network the pre-fill
+                    # estimate above -- push the broker-true price so it doesn't
+                    # drift from this ledger forever (confirmed live 2026-08-27 on
+                    # SMoney's COF/CRM closes: admin API still showed the stale
+                    # entry_price days after this local correction ran).
+                    if t.get("network_trade_id"):
+                        _agentberg.correct_trade(t["network_trade_id"], entry_price=broker_price)
 
         # ── Exit side ────────────────────────────────────────────────────────
         if t.get("status") == "closed" and t.get("exit_order_id"):
@@ -507,6 +515,8 @@ def eod_reconcile(days: int = 30):
                     )
                     print(f"[eod] {t['symbol']}: corrected exit ${local_exit:.2f} "
                           f"→ ${broker_exit:.2f} (broker truth)")
+                    if t.get("network_trade_id"):
+                        _agentberg.correct_trade(t["network_trade_id"], exit_price=broker_exit, pnl=pnl)
                     exit_fixed += 1
 
     if entry_fixed or exit_fixed:

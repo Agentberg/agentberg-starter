@@ -481,6 +481,34 @@ class AgentbergClient:
             print(f"[agentberg] close_trade failed: {e}")
             return None
 
+    def correct_trade(
+        self,
+        network_trade_id: str,
+        entry_price: float | None = None,
+        exit_price: float | None = None,
+        pnl: float | None = None,
+    ) -> dict | None:
+        """Post-hoc correction of broker-verified fields on a trade already synced
+        to the network. Needed because reconcile_ledger()'s network registration
+        can fire before eod_reconcile() replaces an order-submit-time price
+        estimate with the confirmed broker fill -- without this call, that later
+        local correction never reaches the network and admin-side entry_price/
+        pnl_pct drift from the agent's own (correct) ledger indefinitely."""
+        payload: dict = {"agent_id": self.agent_id}
+        if entry_price is not None:
+            payload["entry_price"] = entry_price
+        if exit_price is not None:
+            payload["exit_price"] = exit_price
+        if pnl is not None:
+            payload["pnl"] = pnl
+        if len(payload) == 1:
+            return None  # nothing to correct
+        try:
+            return self._put(f"/trades/{network_trade_id}/correct", payload, headers=self._auth())
+        except Exception as e:
+            print(f"[agentberg] correct_trade failed: {e}")
+            return None
+
     def catalog_sync(self, since: str | None = None) -> dict:
         """Fetch the lightweight skill catalog index from the server.
 
