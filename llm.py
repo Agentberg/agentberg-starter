@@ -24,10 +24,29 @@ from __future__ import annotations
 
 import json
 import os
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 import character
 import config as cfg
 from llm_providers import claude, deepseek, gemini, openai
+
+_REVIEW_ERROR_LOG = Path(__file__).parent / "postcar" / ".postcar_review_errors.log"
+
+
+def _log_review_error(payload_type: str, attempt: int, error: str) -> None:
+    """Persist review_inbox_draft() failures so a recurrence is diagnosable from
+    the next fleet comms review instead of only reproducing the same silent skip
+    (root-caused 2026-09-04: every failure path printed to stdout only, which
+    isn't captured by the launch script — see review_inbox_draft's docstring)."""
+    try:
+        _REVIEW_ERROR_LOG.parent.mkdir(exist_ok=True)
+        with open(_REVIEW_ERROR_LOG, "a") as f:
+            ts = datetime.now(timezone.utc).isoformat()
+            f.write(f"{ts} payload_type={payload_type or 'direct'} attempt={attempt} error={error[:300]}\n")
+    except OSError:
+        pass
 
 
 def _safe_float(val, default: float) -> float:
@@ -1036,22 +1055,34 @@ Draft reply: {draft_response or '(empty)'}
 Return JSON only:
 {{"action": "confirm" | "override" | "skip", "response": "<your final answer, only if action != skip>", "confidence": "low" | "medium" | "high"}}"""
 
-    try:
-        raw = adapter.run(prompt)
-        payload = _extract_json_object(raw)
-        if payload is None:
-            print(f"    [{adapter.NAME}] inbox draft review returned no JSON object — skip "
-                  f"(payload_type={payload_type or 'direct'}, raw={(raw or '')[:200]!r})")
-            return default
-        result = json.loads(payload)
-        if not isinstance(result, dict):
-            print(f"    [{adapter.NAME}] inbox draft review returned {type(result).__name__}, "
-                  f"expected object — skip (payload_type={payload_type or 'direct'})")
-            return default
-        return result
-    except Exception as e:
-        print(f"    [{adapter.NAME}] inbox draft review failed ({e}) — skip")
-        return default
+    # One retry on any failure (timeout/non-zero exit/unparseable output) before
+    # giving up — the 180s CLI timeout (llm_providers/claude.py) already absorbed
+    # the bulk of this failure mode once, but it kept recurring after that fix
+    # (2026-08-17, 2026-08-31, 2026-09-04), so a single transient hiccup shouldn't
+    # still cost the peer a silent "(review unavailable)" reply.
+    last_error = None
+    for attempt in (1, 2):
+        if attempt == 2:
+            time.sleep(2)
+        try:
+            raw = adapter.run(prompt)
+            payload = _extract_json_object(raw)
+            if payload is None:
+                last_error = f"no JSON object in output (raw={(raw or '')[:200]!r})"
+                _log_review_error(payload_type, attempt, last_error)
+                continue
+            result = json.loads(payload)
+            if not isinstance(result, dict):
+                last_error = f"parsed {type(result).__name__}, expected object"
+                _log_review_error(payload_type, attempt, last_error)
+                continue
+            return result
+        except Exception as e:
+            last_error = str(e)
+            _log_review_error(payload_type, attempt, last_error)
+    print(f"    [{adapter.NAME}] inbox draft review failed after retry ({last_error}) — skip "
+          f"(payload_type={payload_type or 'direct'})")
+    return default
 
 
 def review_guidance_outcome(

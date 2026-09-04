@@ -1,7 +1,18 @@
 {
-  "version": "2.11.46",
-  "released": "2026-08-28",
+  "version": "2.11.47",
+  "released": "2026-09-04",
   "changelog": [
+    {
+      "version": "2.11.47",
+      "category": "0",
+      "date": "2026-09-04",
+      "files": [
+        "llm.py"
+      ],
+      "fixed": [
+        "review_inbox_draft()'s peer-visible \"(review unavailable)\" fallback (interconnect.py's _REPORT_FALLBACK) has recurred across four separate incidents (2026-07-29, 08-17, 08-31, 09-04) despite the 60s->180s CLI timeout fix on 2026-07-29/30 -- confirmed again live 09-04 when two agents (agt_8224610908, agt_7577353607) both hit it on the same platform mentoring round. Root cause of the recurrence, not just the original timeout: every one of the function's five failure paths (LLM_REASONING=off, no adapter, unparseable output, non-dict JSON, any exception from adapter.run()) fell straight through to the canned skip with zero retry and zero persisted diagnostics -- each failure only ever reached stdout via print(), which the launch script doesn't capture, so every recurrence reproduced the same undiagnosable symptom instead of leaving evidence. Added one retry (2s backoff) around the adapter call before giving up, and a persisted .postcar_review_errors.log (gitignored, same convention as other .postcar_* state files) recording payload_type/attempt/error for every failure so the next occurrence is diagnosable instead of speculative."
+      ]
+    },
     {
       "version": "2.11.46",
       "category": "0",
