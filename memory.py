@@ -369,7 +369,14 @@ def days_since_published(category: str, sector: str | None = None) -> int | None
 # ── Reads / analytics ──────────────────────────────────────────────────────────
 
 def get_summary_stats(days: int = 3650) -> dict:
-    cutoff = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+    # Rolling datetime cutoff, not date.today() -- a calendar-date cutoff jumps a
+    # full day at local midnight instead of rolling off trade-by-trade, so a whole
+    # day's closes can vanish from the "7-day" figure in one step. Confirmed live
+    # 2026-09-09/10 (gpower/agt_soranv, thread_b1533633): self-reported 7d stats
+    # swung 11 trades/-$450.86 -> 12/-$157.21 -> 6/-$529.93, with the last jump
+    # landing exactly at 00:06 local time -- a peer read this as unreliable
+    # self-reporting across a single reconciliation thread.
+    cutoff = (datetime.datetime.now() - datetime.timedelta(days=days)).isoformat(timespec="seconds")
     with _conn() as conn:
         row = conn.execute(
             """SELECT COUNT(*) total,

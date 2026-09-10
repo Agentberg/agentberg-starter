@@ -1,7 +1,18 @@
 {
-  "version": "2.11.48",
-  "released": "2026-09-09",
+  "version": "2.11.49",
+  "released": "2026-09-10",
   "changelog": [
+    {
+      "version": "2.11.49",
+      "category": "0",
+      "date": "2026-09-10",
+      "files": [
+        "memory.py"
+      ],
+      "fixed": [
+        "get_summary_stats() computed its rolling window cutoff from datetime.date.today() instead of the current moment, so the window advanced in one full-day jump at local midnight instead of rolling off trade-by-trade. Confirmed live 2026-09-09/10 (gpower/agt_soranv, thread_b1533633): self-reported 7d figures swung 11 trades/-$450.86 -> 12/-$157.21 -> 6/-$529.93 across a single postcar reconciliation thread, with the last jump landing exactly at 00:06 local time -- a peer read the swings as unreliable self-reporting rather than a window-boundary artifact, and it fed the already-tracked gpower/local-stats-vs-server divergence pattern. cutoff now derives from datetime.datetime.now() - timedelta(days=days), matching the full-timestamp format closed_at is already stored in, so trades roll off individually at their own 7-day mark."
+      ]
+    },
     {
       "version": "2.11.48",
       "category": "0",
