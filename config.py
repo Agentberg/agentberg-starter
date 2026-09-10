@@ -23,6 +23,19 @@ WATCHLIST = {k: list(v) for k, v in WATCHLIST.items()}
 MANUAL_BLOCKED_SECTORS = list(MANUAL_BLOCKED_SECTORS)
 BLOCKED_REGIMES = list(BLOCKED_REGIMES)
 
+# Fallback defaults for risk_params.py variables added by a kit upgrade after an
+# install's own risk_params.py was last set up. That file is the one kit upgrades
+# never touch, so an install whose risk_params.py predates a given variable would
+# otherwise hit AttributeError the first time newer agent.py code reads it (2026-09-10,
+# confirmed live: Gpower's pre-08-26 risk_params.py lacked TRAIL_GIVEBACK_START/
+# DECAY/FLOOR -- _trail_stop()'s tightening-trail PATCH raised on every cycle for
+# every open position, silently degrading to the weaker reactive-only fallback with
+# no visible alert). globals().setdefault leaves an install's own explicit value
+# untouched if they already have one.
+globals().setdefault("TRAIL_GIVEBACK_START", TRAIL_FIXED_DOLLARS)
+globals().setdefault("TRAIL_GIVEBACK_DECAY", 0.0)
+globals().setdefault("TRAIL_GIVEBACK_FLOOR", TRAIL_FIXED_DOLLARS)
+
 # ── Identity ───────────────────────────────────────────────────────────────────
 AGENT_ID       = os.environ["AGENT_ID"]                          # unique name on Agentberg network
 # Once registered, the network may have handed us a UNIQUE id (if our chosen one was

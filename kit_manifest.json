@@ -1,7 +1,18 @@
 {
-  "version": "2.11.49",
+  "version": "2.11.50",
   "released": "2026-09-10",
   "changelog": [
+    {
+      "version": "2.11.50",
+      "category": "0",
+      "date": "2026-09-10",
+      "files": [
+        "config.py"
+      ],
+      "fixed": [
+        "config.py's `from risk_params import *` re-export has no fallback for a risk_params.py variable added by a later kit release, so an install whose risk_params.py predates that addition hits AttributeError the first time newer agent.py code reads it -- and risk_params.py is explicitly the one file kit upgrades never touch, so the gap never self-heals. Confirmed live 2026-09-10: gpower (agt_soranv, kit v2.7.7, risk_params.py predates the 2026-08-26 tightening-trail feature) was missing TRAIL_GIVEBACK_START/DECAY/FLOOR -- _trail_stop()'s tightening-trail PATCH (agent.py) raised that AttributeError on every monitor cycle for every one of its 8 open positions, silently falling back to the weaker reactive-only stop path (the exact protection gap the 2026-08-13 TSLA incident that motivated the PATCH-based trail documented), with no operator-visible alert beyond a log line buried in a 26MB scheduler.log. Added globals().setdefault() fallbacks in config.py for the three TRAIL_GIVEBACK_* constants, defaulting to the pre-08-26 flat-$100 trail (giveback_start=floor=TRAIL_FIXED_DOLLARS, decay=0) so an un-migrated install degrades to its own prior behavior instead of crashing silently into a worse one. Does not touch risk_params.py itself -- the never-auto-touched guarantee holds; an install that sets its own values there is unaffected."
+      ]
+    },
     {
       "version": "2.11.49",
       "category": "0",
