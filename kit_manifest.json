@@ -1,7 +1,18 @@
 {
-  "version": "2.11.47",
-  "released": "2026-09-04",
+  "version": "2.11.48",
+  "released": "2026-09-09",
   "changelog": [
+    {
+      "version": "2.11.48",
+      "category": "0",
+      "date": "2026-09-09",
+      "files": [
+        "interconnect.py"
+      ],
+      "fixed": [
+        "check_self_emotion()'s report_trigger() outcome logging collapsed every non-dupe failure (a real relay error, or a help_request delivered to zero peers) into the same \"dropped (dupe?)\" reason as postcar's own semantic dedup skip, so a genuinely failed dispatch was indistinguishable from routine dedup in every log. Confirmed live in the 2026-09-09 postcar comms review: gpower's fear-triggered help_request (capability=entry_timing, 08:46 local) has a matching entry in postcar's own .postcar_asked_topics.json -- proof it passed postcar's dupe check, since _record_asked_question() only runs after that check -- but produced zero threads anywhere in postcar's conversation history for the following 18h. Added _asked_topics_count(), which reads that same file before and after the report_trigger() call; if the count grew but report_trigger() still returned False, the trigger was provably not a dupe, so the log now says so explicitly instead of \"dropped (dupe?)\". The underlying delivery failure itself is in postcar_check.py's _post_help_request() (returns False identically for a real relay error and for a 0-peer match) -- flagged to the postcar side, not fixed here, since that file isn't ours."
+      ]
+    },
     {
       "version": "2.11.47",
       "category": "0",

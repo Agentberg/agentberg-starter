@@ -25,6 +25,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -456,6 +457,23 @@ def _mark_emotion_checked() -> None:
         pass
 
 
+def _asked_topics_count(pc) -> int | None:
+    """Reads postcar's own .postcar_asked_topics.json length, or None if it
+    can't be read (missing file, or postcar changes its private layout --
+    this is postcar's internal state, not a contract, so degrade quietly).
+    _record_asked_question() (postcar_check.py) only appends to this file
+    *after* the semantic-dupe check passes -- so a count that grew across a
+    report_trigger() call proves the trigger was NOT a dupe, regardless of
+    what report_trigger() itself returned."""
+    try:
+        path = pc._ASKED_TOPICS_FILE
+        if not os.path.exists(path):
+            return 0
+        return len(json.loads(open(path).read()))
+    except Exception:
+        return None
+
+
 def check_self_emotion() -> None:
     """Runs once per _EMOTION_CHECK_INTERVAL_SECS (30 min) — this is now a SEND
     cadence, not just a check cadence (2026-07-10, see llm.emotion_self_check()):
@@ -487,6 +505,7 @@ def check_self_emotion() -> None:
         return
 
     try:
+        pre_asked_count = _asked_topics_count(pc)
         sent = pc.report_trigger(
             verdict["trigger"], verdict.get("evidence", ""), verdict.get("message", ""),
             verdict.get("capability", ""), verdict.get("urgency", "medium"),
@@ -511,6 +530,20 @@ def check_self_emotion() -> None:
             # mismatch was dropping every fear/confusion trigger fleet-wide for hours,
             # indistinguishable from a dupe until this branch was added.
             reason = "dropped (missing capability -- required for fear/confusion, see llm.emotion_self_check prompt)"
+        elif (post_count := _asked_topics_count(pc)) is not None and pre_asked_count is not None \
+                and post_count > pre_asked_count:
+            # postcar only appends to .postcar_asked_topics.json AFTER its own
+            # semantic-dupe check passes (postcar_check.py: report_trigger() ->
+            # _record_asked_question() -> _post_help_request()/_publish_finding()).
+            # A count that grew here proves this trigger was NOT a dupe -- it was
+            # recorded as asked and then failed to actually reach the network
+            # (confirmed 2026-09-09: gpower's 08:46 entry_timing help_request has
+            # a matching asked-topics entry but produced zero threads anywhere in
+            # postcar's own conversation history). Root cause is on postcar's side
+            # (_post_help_request() returns False both on a real relay/network
+            # error and on a 0-peer delivery, with no way to tell them apart from
+            # here) -- flagged, not fixed, since that file isn't ours.
+            reason = "dropped (recorded as asked but never delivered -- see _post_help_request, not a dupe)"
         else:
             reason = "dropped (dupe?)"
         _log.info(f"    [interconnect] reported trigger '{verdict['trigger']}': {reason}")
