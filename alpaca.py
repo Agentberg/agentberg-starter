@@ -594,3 +594,43 @@ class AlpacaClient:
                 continue
             return o
         return None
+
+    def get_closing_fills(self, symbol: str, side: str = "sell", after: str | None = None,
+                           days: int = 90) -> list[dict]:
+        """All filled closing orders for symbol+side since `after` (or `days` ago),
+        oldest first (asc). Used for deterministic FIFO matching across lots to
+        prevent fill reuse."""
+        window_start = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+        query_after = max((after or "")[:10], window_start) if after else window_start
+        try:
+            orders = self._get("/v2/orders", params={
+                "status": "closed", "symbols": symbol, "limit": 500,
+                "after": query_after, "direction": "asc",
+            })
+        except Exception:
+            return []
+        return [o for o in orders if o.get("filled_at") and o.get("side") == side]
+
+    def get_activity_fill(self, order_id: str, date: str | None = None) -> dict | None:
+        """Authoritative fill lookup from /v2/account/activities/FILL — used when
+        orders are archived or 404 from /v2/orders."""
+        params = {"date": date[:10]} if date else {}
+        try:
+            acts = self._get("/v2/account/activities/FILL", params=params)
+            if isinstance(acts, list):
+                for a in acts:
+                    if a.get("order_id") == order_id:
+                        return {
+                            "id": a.get("order_id"),
+                            "status": "filled",
+                            "filled_avg_price": float(a.get("price") or 0),
+                            "filled_qty": float(a.get("qty") or 0),
+                            "filled_at": a.get("transaction_time"),
+                            "side": a.get("side"),
+                            "symbol": a.get("symbol"),
+                            "commission": 0.0,
+                        }
+        except Exception:
+            pass
+        return None
+

@@ -341,35 +341,26 @@ def reconcile_ledger():
         # (see the entry call site) -- check "did THIS exact order fill?" via
         # get_order(), no searching or guessing which recent order was the exit.
         fill = None
-        for leg_id in (t.get("stop_order_id"), t.get("take_profit_order_id")):
+        exit_reason = "reconciled_broker"
+        for leg_id, leg_reason in ((t.get("stop_order_id"), "stop_loss"),
+                                   (t.get("take_profit_order_id"), "take_profit")):
             if not leg_id:
                 continue
             leg = _alpaca.get_order(leg_id)
-            if leg and leg.get("status") == "filled":
+            if not leg and hasattr(_alpaca, "get_activity_fill"):
+                leg = _alpaca.get_activity_fill(leg_id, date=(t.get("opened_at") or "")[:10])
+            if leg and (leg.get("status") == "filled" or leg.get("activity_type") == "FILL"):
                 fill = leg
+                exit_reason = leg_reason
                 break
 
         if fill is None:
             # No bracket leg ids on record (pre-migration trade, or a non-bracket
             # exit e.g. a manual sell) -- fall back to the heuristic search.
-            # Closing fill is a BUY for a short position (buy to cover), a SELL for
-            # a long one -- confirmed bug: this was hardcoded to "sell" regardless
-            # of direction, so short-position reconciliation could never find its
-            # own exit fill (it only matched the entry side instead).
-            # `after=opened_at` -- get_last_fill() otherwise matches by symbol+side
-            # only, so a same-symbol re-entry after this trade closed could hand
-            # back an unrelated fill as "the" exit. A fill can't close a trade that
-            # hadn't been entered yet, so anchoring to opened_at rules out at least
-            # that case.
             fill = _alpaca.get_last_fill(long_sym, side="buy" if is_short else "sell",
                                          after=t.get("opened_at"), exclude_ids=claimed_exit_fill_ids)
         qty  = t.get("qty") or 0
         if not fill or qty <= 0:
-            # Broker confirms the position isn't held, but we can't find the real
-            # closing fill (or have no valid quantity) -- don't guess. Fabricating
-            # exit_price=0.0/pnl=0.0 here used to write phantom zero-P&L trades
-            # into the local ledger AND report them to the network as real closes.
-            # Leave it open locally; retry next session once the fill is findable.
             unreconciled += 1
             continue
         claimed_exit_fill_ids.add(fill.get("id"))
@@ -378,13 +369,24 @@ def reconcile_ledger():
         mult  = t.get("multiplier") or 1
         sign  = -1 if is_short else 1   # qty is always stored positive; direction lives here
         if exit_price and entry:
-            pnl     = (exit_price - entry) * qty * mult * sign
-            pnl_pct = (exit_price - entry) / entry * sign
+            pnl     = round((exit_price - entry) * qty * mult * sign, 2)
+            pnl_pct = round((exit_price - entry) / entry * sign, 4)
+            # Mathematical invariant assertion: PnL sign MUST match price move direction
+            if is_short:
+                if exit_price < entry:
+                    assert pnl >= 0, f"Invariant violation: short won on price drop ({entry}->{exit_price}) but pnl was {pnl}"
+                elif exit_price > entry:
+                    assert pnl <= 0, f"Invariant violation: short lost on price rise ({entry}->{exit_price}) but pnl was {pnl}"
+            else:
+                if exit_price > entry:
+                    assert pnl >= 0, f"Invariant violation: long won on price rise ({entry}->{exit_price}) but pnl was {pnl}"
+                elif exit_price < entry:
+                    assert pnl <= 0, f"Invariant violation: long lost on price drop ({entry}->{exit_price}) but pnl was {pnl}"
         else:
             pnl, pnl_pct = 0.0, 0.0
         memory.record_trade_close(
             t["id"], exit_price=exit_price, pnl=pnl, pnl_pct=pnl_pct,
-            exit_reason="reconciled_broker",
+            exit_reason=exit_reason,
             exit_order_id=fill.get("id"),
             closed_at=fill.get("filled_at"),
             exit_commission=float(fill.get("commission") or 0),
@@ -1781,6 +1783,22 @@ def _trail_stop(trade: dict, pos: dict, current_price: float, is_equity: bool) -
     favorable_move = current_price < hwm if is_short else current_price > hwm
     if favorable_move:
         hwm = current_price
+    # Fold recent 5-minute bar highs/lows into HWM to avoid missing intraday spikes between polls
+    try:
+        bars = _alpaca.get_bars(symbol, timeframe="5Min", limit=2)
+        if bars:
+            if is_short:
+                bar_low = min([float(b.get("l") or current_price) for b in bars if b.get("l")])
+                if bar_low < hwm:
+                    hwm = bar_low
+                    favorable_move = True
+            else:
+                bar_high = max([float(b.get("h") or current_price) for b in bars if b.get("h")])
+                if bar_high > hwm:
+                    hwm = bar_high
+                    favorable_move = True
+    except Exception:
+        pass
 
     trigger_pct  = cfg.TRAILING_STOP_TRIGGER_PCT if is_equity else cfg.OPTION_TRAILING_STOP_TRIGGER_PCT
     distance_pct = cfg.TRAILING_STOP_DISTANCE_PCT if is_equity else cfg.OPTION_TRAILING_STOP_DISTANCE_PCT

@@ -5,6 +5,15 @@ All notable changes to the Agentberg kit and CLI.
 This file is generated from `kit_manifest.json` — do not edit by hand.
 Run `python scripts/release_notes.py --write` after updating the manifest.
 
+## v2.12.0 — 2026-09-11
+
+*Files:* alpaca.py, agent.py
+
+- alpaca.py: new get_closing_fills() -- fetches closed orders ascending (FIFO) up to 500 orders, preventing single-fill reuse across multiple open lots.
+- alpaca.py: new get_activity_fill() -- authoritative fallback querying /v2/account/activities/FILL when orders are archived from /v2/orders.
+- agent.py: reconcile_ledger() now matches bracket legs by exact stop_order_id vs take_profit_order_id, derives exit_reason directly from the filled leg (stop_loss vs take_profit) instead of generic reconciled_broker, and asserts physical PnL direction invariants (preventing short/long mathematical sign inversions).
+- agent.py: _trail_stops() folds recent 5-minute bar highs/lows into High-Water Mark tracking so intraday price spikes between poll ticks are never missed.
+
 ## v2.11.50 — 2026-09-10
 
 *Files:* config.py
