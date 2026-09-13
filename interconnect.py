@@ -257,6 +257,23 @@ def process_postcar_inbox() -> None:
     if not pending:
         return
 
+    # Confirmed live 2026-09-12 (gpower/thread_95ba08b6): postcar's own
+    # check_inbox() queued the same inbound TASK as two separate pending
+    # entries (same thread_id, different id, both ACK'd at the same
+    # second) -- postcar-agent side, not ours to fix, but without this
+    # guard we'd loop over both and fire two override replies to the same
+    # peer 18s apart, which is what actually happened. Keep the first
+    # (newest, since _queue_inbox_reply() inserts at index 0) per thread_id.
+    seen_threads = set()
+    deduped = []
+    for entry in pending:
+        tid = entry.get("thread_id")
+        if tid in seen_threads:
+            continue
+        seen_threads.add(tid)
+        deduped.append(entry)
+    pending = deduped
+
     brief = _character_brief()
     # Same real trade/P&L/open-position summary postcar_check.py's own draft-generation
     # call already builds via _build_context() -- previously never reached THIS review

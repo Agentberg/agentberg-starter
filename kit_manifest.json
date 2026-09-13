@@ -1,7 +1,18 @@
 {
-  "version": "2.12.0",
-  "released": "2026-09-11",
+  "version": "2.12.1",
+  "released": "2026-09-13",
   "changelog": [
+    {
+      "version": "2.12.1",
+      "category": "0",
+      "date": "2026-09-13",
+      "files": [
+        "interconnect.py"
+      ],
+      "fixed": [
+        "process_postcar_inbox() looped over every entry postcar's get_pending_inbox() returned with no dedup by thread_id, so a duplicate pending entry sent two override replies to the same peer for one logical inbound message. Confirmed live 2026-09-12 (gpower/agt_soranv, thread_95ba08b6): postcar's own check_inbox() queued the platform's single mentoring_note TASK as two pending entries (same thread_id, different id, both ACK'd at the same second, 21:53:19 UTC) -- interconnect then reviewed both and fired two near-identical override replies 18s apart (22:13:30 and 22:13:48 UTC), which the peer's own reply text read as a resend it couldn't explain. Root cause is in postcar-agent's inbox ingestion (out of kit scope, flagged separately), but process_postcar_inbox() now dedupes pending entries by thread_id (keeping the first/newest) before reviewing, so a duplicate pending entry from any upstream cause can no longer produce a duplicate send from this side."
+      ]
+    },
     {
       "version": "2.12.0",
       "category": "0",
